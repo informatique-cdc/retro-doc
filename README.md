@@ -1,1 +1,162 @@
-# retro-doc
+<p align="center">
+  <img width="200" alt="Retro-Doc" src="https://github.com/user-attachments/assets/3b9b5d11-ac58-446f-b4b5-d0c058e42d70" />
+<p>
+<p align="center">
+  <b>Automated retro-documentation for existing codebases</b>
+</p>
+<p align="center">
+  <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12"></a>
+  <a href="https://angular.dev/"><img src="https://img.shields.io/badge/angular-21-red?logo=angular" alt="Angular 21"></a>
+  <a href="https://conventionalcommits.org/"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits"></a>
+  <a href="https://pre-commit.com/"><img src="https://img.shields.io/badge/pre--commit-enabled-green?logo=pre-commit" alt="pre-commit"></a>
+</p>
+
+
+## About
+
+Retro-Doc analyzes existing codebases to automatically generate documentation and structural insights. Upload a zip archive of your source code, and Retro-Doc extracts Abstract Syntax Trees (AST), Control Flow Graphs (CFG), and Data Flow Graphs (DFG), then makes the results explorable through an interactive UI, a RAG-powered chatbot, and an autonomous deep-analysis agent.
+
+Built by the [Caisse des Depots Informatique (ICDC)](https://www.icdc.caissedesdepots.fr/).
+
+## Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Repository Structure](#repository-structure)
+- [Getting Started](#getting-started)
+- [Contributing](#contributing)
+- [Maintainers & Contributors](#maintainers--contributors)
+- [License](#license)
+
+## Features
+
+- **Code analysis pipeline** — Upload a zip of source code, choose a target language, and run a multi-step analysis that extracts AST, CFG, and DFG graphs per file
+- **Graph explorer** — Browse generated graphs interactively with [Cytoscape](https://cytoscape.org/)-based visualization
+- **RAG chatbot** — Ask questions about the analyzed codebase in a conversational interface, powered by [LangChain](https://www.langchain.com/langchain/) with [Azure AI Search](https://azure.microsoft.com/en-us/products/ai-services/ai-search/) as the vector store
+- **Deep analysis** — Submit free-form queries for autonomous multi-step code analysis using [DeepAgents](https://www.langchain.com/deep-agents/), with PDF export
+- **Pipeline tracking** — Monitor analysis progress in real time (pending, running, completed, failed)
+- **Multi-user support** — [Microsoft Entra ID](https://www.microsoft.com/en-gb/security/business/identity-access/microsoft-entra-id/) authentication, per-user repository lists, and shared repository access
+
+## Architecture
+
+```mermaid
+graph LR
+    User([User]) --> Frontend
+
+    subgraph Azure
+        Frontend["Frontend<br/><small>Angular</small>"]
+        Backend["Backend API<br/><small>FastAPI</small>"]
+        Worker["Worker<br/><small>Durable Functions</small>"]
+        Blob[(Blob Storage)]
+        DB[(Cosmos DB<br/>for MongoDB)]
+        Search[(Azure AI Search)]
+    end
+
+    Frontend -->|REST API| Backend
+    Backend -->|triggers pipeline| Worker
+    Backend -->|RAG queries| Search
+    Backend --> DB
+    Worker -->|read/write files| Blob
+    Worker -->|persist graphs & docs| DB
+```
+
+| Component | Role |
+|---|---|
+| **Frontend** | Angular SPA providing the UI for repository management, graph exploration, chatbot, and deep analysis |
+| **Backend** | FastAPI server handling authentication, CRUD operations, chatbot conversations (SSE streaming), and deep analysis orchestration |
+| **Worker** | Azure Durable Functions app that runs the analysis pipeline: zip extraction, per-file AST/CFG/DFG generation, and summary creation |
+
+## Tech Stack
+
+### Backend (`backend/`)
+
+[FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) (MongoDB ODM) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Loguru](https://loguru.readthedocs.io/)
+
+### Worker (`worker/`)
+
+[Azure Durable Functions](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-overview/) &bull; [javalang](https://github.com/c2nes/javalang) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Loguru](https://loguru.readthedocs.io/)
+
+### Frontend (`frontend/`)
+
+[Angular 21](https://angular.dev/) &bull; [Cytoscape.js](https://js.cytoscape.org/) &bull; [Mermaid](https://mermaid.js.org/) &bull; [highlight.js](https://highlightjs.org/)
+
+## Repository Structure
+
+```
+retro-doc/
+├── backend/        # FastAPI REST API server
+├── worker/         # Azure Durable Functions analysis pipeline
+├── frontend/       # Angular SPA
+└── LICENSE
+```
+
+Each component has its own dependency management and can be developed independently. See the `README.md` file in each folder for detailed documentation.
+
+## Getting Started
+
+### Prerequisites
+
+- [Python 3.12](https://www.python.org/)
+- [uv 0.10.9](https://docs.astral.sh/uv/)
+- [Node.js 22](https://nodejs.org/) (for the frontend and Azure Functions Core Tools)
+- [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local) (for the worker)
+
+### Backend
+
+```bash
+cd backend
+cp .env.example .env        # fill in your credentials
+uv sync
+uv run uvicorn app.main:app --host localhost --port 8000
+```
+
+API docs are available at `http://localhost:8000/docs` when `APP_DEBUG=True`.
+
+### Worker
+
+```bash
+cd worker
+cp .env.example .env        # fill in your credentials
+uv sync
+```
+
+Start the local storage emulator and the Functions runtime in two terminals:
+
+```bash
+# Terminal 1
+npx azurite --skipApiVersionCheck --location .azurite-data
+
+# Terminal 2
+func start
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+The app is served at `http://localhost:4200/`.
+
+## Contributing
+
+Contributions are welcome. This project uses [conventional commits](https://conventionalcommits.org) and [pre-commit](https://pre-commit.com/) hooks for code quality.
+
+```bash
+uv run pre-commit install   # backend & worker
+```
+
+## Maintainers & Contributors
+
+[Grandvizir](https://github.com/Grandvizir)
+[KhadgarLopez](https://github.com/KhadgarLopez)
+[Mikatux](https://github.com/mikatux)
+[pabroux](https://github.com/pabroux)
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
