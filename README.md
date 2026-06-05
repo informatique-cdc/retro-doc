@@ -1,15 +1,15 @@
 <p align="center">
   <img width="200" alt="Retro-Doc" src="https://github.com/user-attachments/assets/3b9b5d11-ac58-446f-b4b5-d0c058e42d70" />
-<p>
+</p>
 <p align="center">
   <b>Automated retro-documentation for existing codebases</b>
 </p>
 <p align="center">
-  <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License"></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12"></a>
   <a href="https://angular.dev/"><img src="https://img.shields.io/badge/angular-21-red?logo=angular" alt="Angular 21"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12"></a>
   <a href="https://conventionalcommits.org/"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits"></a>
   <a href="https://pre-commit.com/"><img src="https://img.shields.io/badge/pre--commit-enabled-green?logo=pre-commit" alt="pre-commit"></a>
+  <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License"></a>
 </p>
 
 
@@ -64,8 +64,8 @@ graph LR
 
 | Component | Role |
 |---|---|
-| **Frontend** | Angular SPA providing the UI for repository management, graph exploration, chatbot, and deep analysis |
 | **Backend** | FastAPI server handling authentication, CRUD operations, chatbot conversations (SSE streaming), and deep analysis orchestration |
+| **Frontend** | Angular SPA providing the UI for repository management, graph exploration, chatbot, and deep analysis |
 | **Worker** | Azure Durable Functions app that runs the analysis pipeline: zip extraction, per-file AST/CFG/DFG generation, and summary creation |
 
 ## Tech Stack
@@ -74,21 +74,21 @@ graph LR
 
 [FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) (MongoDB ODM) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Loguru](https://loguru.readthedocs.io/)
 
-### Worker (`worker/`)
-
-[Azure Durable Functions](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-overview/) &bull; [javalang](https://github.com/c2nes/javalang) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Loguru](https://loguru.readthedocs.io/)
-
 ### Frontend (`frontend/`)
 
 [Angular 21](https://angular.dev/) &bull; [Cytoscape.js](https://js.cytoscape.org/) &bull; [Mermaid](https://mermaid.js.org/) &bull; [highlight.js](https://highlightjs.org/)
+
+### Worker (`worker/`)
+
+[Azure Durable Functions](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-overview/) &bull; [javalang](https://github.com/c2nes/javalang) &bull; [NetworkX](https://networkx.org/) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Loguru](https://loguru.readthedocs.io/)
 
 ## Repository Structure
 
 ```
 retro-doc/
 ├── backend/        # FastAPI REST API server
-├── worker/         # Azure Durable Functions analysis pipeline
 ├── frontend/       # Angular SPA
+├── worker/         # Azure Durable Functions analysis pipeline
 └── LICENSE
 ```
 
@@ -102,6 +102,21 @@ Each component has its own dependency management and can be developed independen
 - [uv 0.10.9](https://docs.astral.sh/uv/)
 - [Node.js 22](https://nodejs.org/) (for the frontend and Azure Functions Core Tools)
 - [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local) (for the worker)
+- [Docker](https://www.docker.com/) (recommended, for running MongoDB locally)
+
+### Infrastructure Services
+
+The backend and the worker both require a **MongoDB** instance and an **Azure Blob Storage** account. For local development you can emulate both:
+
+| Service | Local alternative | Production |
+|---|---|---|
+| MongoDB | Docker | Azure Cosmos DB for MongoDB |
+| Blob Storage | [Azurite](https://github.com/Azure/Azurite) (included via npx) | Azure Blob Storage |
+| AI Search | No local emulator -- requires an [Azure AI Search](https://learn.microsoft.com/azure/search/) instance | Azure AI Search |
+| LLM / Embeddings | Any [LangChain-supported chat model](https://python.langchain.com/docs/integrations/chat/) provider | Mistral AI / Azure OpenAI |
+
+> [!NOTE]
+> An LLM endpoint is required for the full analysis pipeline (graph extraction + documentation generation), the RAG chatbot, and deep analysis. Azure AI Search is required for the chatbot and deep analysis. Neither can be emulated locally.
 
 ### Backend
 
@@ -113,6 +128,16 @@ uv run uvicorn app.main:app --host localhost --port 8000
 ```
 
 API docs are available at `http://localhost:8000/docs` when `APP_DEBUG=True`.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+The app is served at `http://localhost:4200/`.
 
 ### Worker
 
@@ -131,16 +156,6 @@ npx azurite --skipApiVersionCheck --location .azurite-data
 # Terminal 2
 func start
 ```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm start
-```
-
-The app is served at `http://localhost:4200/`.
 
 ## Contributing
 
