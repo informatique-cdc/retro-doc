@@ -169,10 +169,10 @@ uv run pre-commit install   # backend & worker
 
 ## Maintainers & Contributors
 
-- Pierre Houdyer (@Grandvizir) [<img alt="GitHub Grandvizir" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/Grandvizir)
-- Edgar Lopez (@KhadgarLopez) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/KhadgarLopez)
-- Mickaël Mayeur (@Mikatux) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/mikatux)
-- Pierre-Alexandre Broux (@pabroux) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/pabroux)
+- Pierre Houdyer (**@Grandvizir**) [<img alt="GitHub Grandvizir" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/Grandvizir)
+- Edgar Lopez (**@KhadgarLopez**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/KhadgarLopez)
+- Mickaël Mayeur (**@Mikatux**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/mikatux)
+- Pierre-Alexandre Broux (**@pabroux**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/pabroux)
 
 ## License
 
