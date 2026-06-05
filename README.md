@@ -46,20 +46,22 @@ graph LR
     User([User]) --> Frontend
 
     subgraph Azure
-        Frontend["Frontend<br/><small>Angular</small>"]
-        Backend["Backend API<br/><small>FastAPI</small>"]
-        Worker["Worker<br/><small>Durable Functions</small>"]
+        Frontend["Frontend<br/>Angular"]
+        Backend["Backend API<br/>FastAPI"]
+        Worker["Worker<br/>Durable Functions"]
         Blob[(Blob Storage)]
         DB[(Cosmos DB<br/>for MongoDB)]
         Search[(Azure AI Search)]
     end
 
     Frontend -->|REST API| Backend
-    Backend -->|triggers pipeline| Worker
-    Backend -->|RAG queries| Search
+    Backend -->|triggers| Worker
+    Backend -->|RAG| Search
     Backend --> DB
-    Worker -->|read/write files| Blob
-    Worker -->|persist graphs & docs| DB
+    Backend --> Blob
+    Worker --> Blob
+    Worker --> DB
+    Worker --> Search
 ```
 
 | Component | Role |
