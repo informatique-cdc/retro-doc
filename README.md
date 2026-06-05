@@ -17,7 +17,7 @@
 
 Retro-Doc analyzes existing codebases to automatically generate documentation and structural insights. Upload a zip archive of your source code, and Retro-Doc extracts Abstract Syntax Trees (AST), Control Flow Graphs (CFG), and Data Flow Graphs (DFG), then makes the results explorable through an interactive UI, a RAG-powered chatbot, and an autonomous deep-analysis agent.
 
-Built by the [Caisse des Depots Informatique (ICDC)](https://www.icdc.caissedesdepots.fr/).
+Built by the [Caisse des Dépôts Informatique (ICDC)](https://www.icdc.caissedesdepots.fr/).
 
 ## Table of Contents
 
