@@ -116,7 +116,7 @@ The backend and the worker both require a **MongoDB** instance and an **Azure Bl
 | LLM / Embeddings | Any [LangChain-supported chat model](https://python.langchain.com/docs/integrations/chat/) provider | Mistral AI / Azure OpenAI |
 
 > [!NOTE]
-> An LLM endpoint is required for the full analysis pipeline (graph extraction + documentation generation), the RAG chatbot, and deep analysis. Azure AI Search is required for the chatbot and deep analysis. Neither can be emulated locally.
+> An LLM endpoint is required for the full analysis pipeline (graph extraction + documentation generation), the RAG chatbot, and deep analysis. An embedding model and Azure AI Search are required for the chatbot and deep analysis. None of these can be emulated locally.
 
 ### Backend
 
