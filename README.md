@@ -8,7 +8,7 @@
   <a href="https://angular.dev/"><img src="https://img.shields.io/badge/angular-21-red?logo=angular" alt="Angular 21 Badge"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12 Badge"></a>
   <a href="https://conventionalcommits.org/"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits Badge"></a>
-  <a href="https://github.com/j178/prek"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
+  <a href="https://prek.j178.dev"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
   <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License Badge"></a>
   <a href="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml"><img src="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml/badge.svg" alt="CI Badge"></a>
 </p>
