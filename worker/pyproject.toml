@@ -1,0 +1,80 @@
+[project]
+name = "retro-doc-worker"
+version = "0.1.0"
+description = "Worker of the retro-doc project."
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = "==3.12.12"
+dependencies = [
+    "azure-functions>=1.24.0",
+    "azure-functions-durable>=1.5.0",
+    "azure-identity>=1.25.2",
+    "azure-storage-blob>=12.28.0",
+    "beanie>=2.0.1",
+    "javalang>=0.13.0",
+    "langchain==1.2.10",
+    "langchain-azure-ai>=1.1.1",
+    "langchain-mistralai>=1.1.1",
+    "langchain-text-splitters>=1.1.1",
+    "loguru>=0.7.3",
+    "networkx>=3.6.1",
+    "pydantic-settings>=2.13.1",
+    "stream-unzip>=0.0.99",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.3",
+    "mypy>=1.19.1",
+    "prek>=0.4.4",
+    "pysentry-rs>=0.4.4",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pyupgrade>=3.21.2",
+    "ruff>=0.14.14",
+    "yamlfix>=1.19.1",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B106"]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.mypy]
+check_untyped_defs = true
+disable_error_code = ["misc"]
+disallow_any_generics = true
+disallow_untyped_decorators = false
+disallow_untyped_defs = true
+follow_imports = "silent"
+no_implicit_reexport = true
+plugins = ["pydantic.mypy"]
+strict = true
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pysentry.ignore]
+ids = ["PYSEC-2025-183"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["I","F401"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.yamlfix]  
+comments_min_spaces_from_content = 1
+explicit_start = false
+section_whitelines = 1
+sequence_style = "keep_style"

@@ -1,0 +1,17 @@
+# Git related files
+.git*
+
+# Test directory
+tests
+
+# Environment variables files
+.env*
+
+# Prek configuration file
+prek.toml
+
+# Markdown files
+*.md
+
+# Docker files
+Dockerfile
