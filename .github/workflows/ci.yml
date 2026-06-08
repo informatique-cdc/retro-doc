@@ -1,0 +1,19 @@
+name: ci
+on:
+  push:
+    branches: [ main ]
+env:
+  NIXPKGS: github:NixOS/nixpkgs/cbb5cf358f50aa6acc9efd6113b7bcfbc352cd73
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3.21.0
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+      - name: Scan secrets
+        run: nix run ${{ env.NIXPKGS }}#betterleaks -- git --redact --no-banner --verbose
