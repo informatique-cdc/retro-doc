@@ -1,0 +1,89 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+default_stages = ["pre-commit"]
+default_install_hook_types = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "pyupgrade",
+    name = "pyupgrade",
+    description = "This hook checks Python files with pyupgrade.",
+    entry = "uv run pyupgrade --py312-plus",
+    language = "system",
+    types_or = [
+      "python",
+      "pyi"
+    ]
+  },
+  {
+    id = "ruff-format",
+    name = "ruff (formatter)",
+    description = "This hook checks Python files with ruff.",
+    entry = "uv run ruff format",
+    language = "system",
+    types_or = [
+      "python",
+      "pyi"
+    ]
+  },
+  {
+    id = "ruff-check",
+    name = "ruff (linter & fixer)",
+    description = "This hook checks Python files with ruff.",
+    entry = "uv run ruff check --fix",
+    language = "system",
+    types_or = [
+      "python",
+      "pyi"
+    ]
+  },
+  {
+    id = "bandit",
+    name = "bandit",
+    description = "This hook checks Python files with bandit.",
+    entry = "uv run bandit",
+    language = "system",
+    types_or = [
+      "python",
+      "pyi"
+    ],
+    args = [
+      "-r",
+      "-q",
+      "-c",
+      "pyproject.toml"
+    ]
+  },
+  {
+    id = "yamlfix",
+    name = "yamlfix",
+    description = "This hook checks YAML files with yamlfix.",
+    entry = "uv run yamlfix",
+    language = "system",
+    types = ["yaml"]
+  },
+  {
+    id = "mypy",
+    name = "mypy",
+    description = "This hook checks Python files with mypy in strict mode.",
+    entry = "uv run mypy .",
+    language = "system",
+    types_or = [
+      "python",
+      "pyi"
+    ],
+    pass_filenames = false
+  },
+  {
+    id = "pysentry",
+    name = "pysentry",
+    description = "This hook checks Python dependencies with pysentry.",
+    entry = "uv run pysentry-rs .",
+    language = "system",
+    pass_filenames = false
+  }
+]
