@@ -27,8 +27,6 @@ The Retro-Doc project focuses on extracting knowledge from an existing codebase.
 > pip install uv==0.10.9
 > ```
 
-, which emulates Azure Storage services locally.
-
 ## Installation
 
 ### Node packages
