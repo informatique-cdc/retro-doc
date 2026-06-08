@@ -1,0 +1,49 @@
+name: "Bug Report"
+description: Report a reproducible bug or regression
+labels: ["bug"]
+type: "Bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+
+        Please update the title above to concisely describe the issue.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is. Include screenshots if needed.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps To Reproduce
+      description: Reproduction steps help us fix bugs faster.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: false
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+    validations:
+      required: false
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information (environment details, logs, configuration, etc.).
+    validations:
+      required: false
