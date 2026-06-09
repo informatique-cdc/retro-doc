@@ -165,10 +165,10 @@ func start
 
 ## Contributing
 
-Contributions are welcome. This project uses [conventional commits](https://conventionalcommits.org) and [pre-commit](https://pre-commit.com/) hooks for code quality.
+Contributions are welcome. This project uses [conventional commits](https://conventionalcommits.org) and [prek](https://prek.j178.dev) hooks for code quality.
 
 ```bash
-uv run pre-commit install   # backend & worker
+uv run prek install   # backend & worker
 ```
 
 ## Maintainers & Contributors
