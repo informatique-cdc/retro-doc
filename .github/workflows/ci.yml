@@ -2,18 +2,48 @@ name: ci
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
 env:
   NIXPKGS: github:NixOS/nixpkgs/cbb5cf358f50aa6acc9efd6113b7bcfbc352cd73
 jobs:
   qa:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout code
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3.21.1
       - name: Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@v14
-      - name: Scan secrets
+      - name: Scan Secrets
         run: nix run ${{ env.NIXPKGS }}#betterleaks -- git --redact --no-banner --verbose
+  release:
+    needs: qa
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Extract Changelog
+        run: |
+          VERSION="${TAG_NAME#v}"
+          awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found" CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::No changelog entry found for version ${VERSION}"
+            exit 1
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG_NAME" --notes-file release_notes.md

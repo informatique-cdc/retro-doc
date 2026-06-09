@@ -8,12 +8,13 @@
   <b>Automated retro-documentation for existing codebases</b>
 </p>
 <p align="center">
+  <a href="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml"><img src="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml/badge.svg" alt="CI Badge"></a>
+  <a href="https://github.com/informatique-cdc/retro-doc/releases/latest"><img src="https://img.shields.io/github/v/release/informatique-cdc/retro-doc" alt="Release Badge"></a>
+  <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License Badge"></a>
   <a href="https://angular.dev/"><img src="https://img.shields.io/badge/angular-21-red?logo=angular" alt="Angular 21 Badge"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12 Badge"></a>
   <a href="https://conventionalcommits.org/"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits Badge"></a>
   <a href="https://prek.j178.dev"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
-  <a href="https://github.com/informatique-cdc/retro-doc/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202-blue" alt="License Badge"></a>
-  <a href="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml"><img src="https://github.com/informatique-cdc/retro-doc/actions/workflows/ci.yml/badge.svg" alt="CI Badge"></a>
 </p>
 
 
@@ -175,8 +176,8 @@ uv run prek install   # backend & worker
 
 - Pierre Houdyer (**@Grandvizir**) [<img alt="GitHub Grandvizir" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/Grandvizir)
 - Edgar Lopez (**@KhadgarLopez**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/KhadgarLopez)
-- Mickaël Mayeur (**@Mikatux**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/mikatux)
-- Pierre-Alexandre Broux (**@pabroux**) [<img alt="GitHub KhadgarLopez" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/pabroux)
+- Mickaël Mayeur (**@Mikatux**) [<img alt="GitHub Mikatux" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/mikatux)
+- Pierre-Alexandre Broux (**@pabroux**) [<img alt="GitHub pabroux" src="https://cdn.simpleicons.org/github/black/white" width="20" align="center">](https://github.com/pabroux)
 
 ## License
 
