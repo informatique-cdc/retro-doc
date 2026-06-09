@@ -1,7 +1,7 @@
 # Retro-Doc Backend
 
 <a href="https://conventionalcommits.org"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits Badge"></a>
-<a href="https://github.com/j178/prek"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
+<a href="https://prek.j178.dev"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
 
 ## About
 
@@ -40,7 +40,7 @@ source .venv/Scripts/activate
 > [!note] 
 > In case you don't want to activate the virtual environment, prefix each following command with `uv run`.
 
-Finally, for development only, setup [prek](https://prek.j178.dev/) to configure your Git Hooks:
+Finally, for development only, setup [prek](https://prek.j178.dev) to configure your Git Hooks:
 ```zsh
 prek install
 ```
