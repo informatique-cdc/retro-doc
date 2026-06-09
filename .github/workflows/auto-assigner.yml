@@ -15,6 +15,6 @@ jobs:
         uses: pozil/auto-assign-issue@v4
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          assignees: Grandvizir, KhadgarLopez, Mikatux:3, pabroux:3
+          assignees: Grandvizir, Mikatux:3, pabroux:3
           numOfAssignee: 1
           allowSelfAssign: false
