@@ -1,5 +1,8 @@
 <p align="center">
-  <img width="200" alt="Retro-Doc" src="https://github.com/user-attachments/assets/3b9b5d11-ac58-446f-b4b5-d0c058e42d70" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/82108585-3fdc-49e7-ad92-4a51d2de79ee">
+    <img width="200" alt="Retro-Doc" src="https://github.com/user-attachments/assets/ed0a8367-e2d2-40ae-9b7d-a87f41680977">
+  </picture>
 </p>
 <p align="center">
   <b>Automated retro-documentation for existing codebases</b>
