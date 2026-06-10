@@ -1,0 +1,122 @@
+.deep-analysis-dialog {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0;
+  max-width: 32rem;
+  width: calc(100vw - 4rem);
+  margin: auto;
+  inset: 0;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.15);
+  overflow: visible;
+
+  &::backdrop {
+    background: rgb(0 0 0 / 0.4);
+  }
+}
+
+.deep-analysis-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.deep-analysis-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.5rem 1.5rem 1rem;
+}
+
+.deep-analysis-dialog__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.deep-analysis-dialog__subtitle {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0.5rem 0 0;
+}
+
+.deep-analysis-dialog__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    background-color: var(--color-surface-alt, #f3f4f6);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: -2px;
+  }
+}
+
+.deep-analysis-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0 1.5rem 1.5rem;
+}
+
+.deep-analysis-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.deep-analysis-dialog__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #1a1a1a);
+}
+
+.deep-analysis-dialog__textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 0.375rem;
+  background-color: var(--color-surface, #fff);
+  color: var(--color-text-primary, #1a1a1a);
+  font-size: 0.875rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 5rem;
+  box-sizing: border-box;
+
+  &::placeholder {
+    color: var(--color-text-secondary, #9ca3af);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: -2px;
+    border-color: transparent;
+  }
+}
+
+.deep-analysis-dialog__error {
+  color: #dc2626;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.deep-analysis-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-block-start: 1px solid var(--color-border, #e5e7eb);
+}

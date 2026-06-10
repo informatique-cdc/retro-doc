@@ -1,0 +1,21 @@
+:root {
+    --shadow-light: 0 1px 2px 0 rgba(0,0,0,0.04);
+    --shadow-mid: 0 2px 8px 0 rgba(0,0,0,0.08);
+    --shadow-mid-hover: 0 6px 12px 0 rgba(0,0,0,0.12);
+    --shadow-strong: 0 8px 24px 0 rgba(0,0,0,0.04);
+
+    --shadow-invert-light: 0 -1px 2px 0 rgba(0,0,0,0.04);
+    --shadow-invert-mid: 0 -2px 8px 0 rgba(0,0,0,0.08);
+    --shadow-invert-mid-hover: 0 -6px 12px 0 rgba(0,0,0,0.12);
+    --shadow-invert-strong: 0 -8px 24px 0 rgba(0,0,0,0.12);
+
+    --shadow-dark-light: 0 1px 2px 0 rgba(19,20,21,0.50);
+    --shadow-dark-mid: 0 2px 8px 0 rgba(19,20,21,0.50);
+    --shadow-dark-mid-hover: 0 6px 12px 0 rgba(19,20,21,0.30);
+    --shadow-dark-strong: 0 8px 24px 0 rgba(19,20,21,0.30);
+
+    --shadow-invert-dark-light: 0 -1px 2px 0 rgba(0,0,0,0.50);
+    --shadow-invert-dark-mid: 0 -2px 8px 0 rgba(0,0,0,0.50);
+    --shadow-invert-dark-mid-hover: 0 -6px 12px 0 rgba(0,0,0,0.30);
+    --shadow-invert-dark-strong: 0 -8px 24px 0 rgba(0,0,0,0.30);
+}

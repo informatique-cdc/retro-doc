@@ -1,0 +1,38 @@
+<div class="design">
+  <h1 class="design__title">Design System</h1>
+  <p class="design__description">
+    Showcase of components from the
+    <code>&#64;design-system</code> library.
+  </p>
+
+  <section class="design__section" aria-labelledby="heading-button">
+    <h2 id="heading-button" class="design__section-title">Button</h2>
+    <p class="design__section-description">
+      The <code>&lt;ui-button&gt;</code> component supports
+      <code>variant</code> property and uses slotted content for the label.
+    </p>
+
+    <div class="design__subsection">
+      <h3 class="design__subsection-title">Variants</h3>
+      <div class="design__component-row">
+        <div class="design__component-item">
+          <span class="design__label">Primary (default)</span>
+          <ui-button>Primary</ui-button>
+        </div>
+        <div class="design__component-item">
+          <span class="design__label">Secondary</span>
+          <ui-button variant="secondary">Secondary</ui-button>
+        </div>
+      </div>
+    </div>
+
+    <div class="design__subsection">
+      <h3 class="design__subsection-title">Custom labels</h3>
+      <div class="design__component-row">
+        <ui-button>Save</ui-button>
+        <ui-button variant="secondary">Cancel</ui-button>
+        <ui-button>Submit</ui-button>
+      </div>
+    </div>
+  </section>
+</div>

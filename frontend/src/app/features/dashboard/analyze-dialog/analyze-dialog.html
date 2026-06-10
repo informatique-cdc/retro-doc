@@ -1,0 +1,166 @@
+<dialog
+  #dialog
+  class="analyze-dialog"
+  aria-labelledby="analyze-dialog-title"
+  aria-describedby="analyze-dialog-subtitle"
+  (close)="onDialogClose()"
+  (click)="onBackdropClick($event)"
+  (keydown.escape)="close()"
+  tabindex="-1"
+>
+  <div class="analyze-dialog__panel">
+    <header class="analyze-dialog__header">
+      <div>
+        <h2 id="analyze-dialog-title" class="analyze-dialog__title">
+          {{ 'analyzeDialog.title' | translate }}
+        </h2>
+        <p id="analyze-dialog-subtitle" class="analyze-dialog__subtitle">
+          {{ 'analyzeDialog.subtitle' | translate }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="analyze-dialog__close"
+        [attr.aria-label]="'analyzeDialog.closeDialog' | translate"
+        (click)="close()"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="analyze-dialog__body">
+      <!-- Upload Method Tabs -->
+      <div class="analyze-dialog__tabs" role="tablist" [attr.aria-label]="'analyzeDialog.uploadMethod' | translate">
+        <button
+          type="button"
+          role="tab"
+          class="analyze-dialog__tab analyze-dialog__tab--disabled"
+          [attr.aria-selected]="false"
+          [attr.aria-disabled]="true"
+          [attr.title]="'analyzeDialog.comingSoon' | translate"
+          disabled
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 4C3 3.44772 3.44772 3 4 3H7.17157C7.43679 3 7.69114 3.10536 7.87868 3.29289L9.29289 4.70711C9.48043 4.89464 9.73478 5 10 5H16C16.5523 5 17 5.44772 17 6V16C17 16.5523 16.5523 17 16 17H4C3.44772 17 3 16.5523 3 16V4Z" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          {{ 'analyzeDialog.gitRepository' | translate }}
+          <span class="analyze-dialog__tab-badge">{{ 'analyzeDialog.comingSoon' | translate }}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="analyze-dialog__tab"
+          [class.analyze-dialog__tab--active]="uploadMethod() === 'zip'"
+          [attr.aria-selected]="uploadMethod() === 'zip'"
+          (click)="setUploadMethod('zip')"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 3V13M10 3L7 6M10 3L13 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 13V15C3 16.1046 3.89543 17 5 17H15C16.1046 17 17 16.1046 17 15V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          {{ 'analyzeDialog.uploadZip' | translate }}
+        </button>
+      </div>
+
+      <!-- Git URL Input -->
+      @if (uploadMethod() === 'git') {
+        <ui-input
+          [placeholder]="'analyzeDialog.gitUrlPlaceholder' | translate"
+          [value]="gitUrl()"
+          [error]="gitUrlError()"
+          (valueChange)="onGitUrlInput($event)"
+        ></ui-input>
+      }
+
+      <!-- File Upload Dropzone -->
+      @if (uploadMethod() === 'zip') {
+        <ui-dropzone
+          accept=".zip"
+          [instructionText]="'analyzeDialog.dropzoneText' | translate"
+          [ariaLabel]="'analyzeDialog.projectFiles' | translate"
+          [files]="dropzoneFiles()"
+          [error]="fileError()"
+          (fileAdd)="onFileAdd($event)"
+        ></ui-dropzone>
+      }
+
+      <!-- Programming Language -->
+      <div class="analyze-dialog__field">
+        <label class="analyze-dialog__label" for="language-select">
+          {{ 'analyzeDialog.language' | translate }}
+        </label>
+        <select
+          id="language-select"
+          class="analyze-dialog__select"
+          [class.analyze-dialog__select--error]="languageError()"
+          [value]="language()"
+          (change)="onLanguageChange($event)"
+          required
+        >
+          <option value="" disabled>{{ 'analyzeDialog.selectLang' | translate }}</option>
+          @for (opt of languageOptions; track opt.value) {
+            <option [value]="opt.value" [disabled]="!opt.enabled">
+              {{ opt.label }}@if (!opt.enabled) { — {{ 'analyzeDialog.comingSoon' | translate }}}
+            </option>
+          }
+        </select>
+        @if (languageError(); as error) {
+          <span class="analyze-dialog__field-error">{{ error }}</span>
+        }
+      </div>
+
+      <!-- Project Name -->
+      <ui-input
+        [label]="'analyzeDialog.projectName' | translate"
+        [placeholder]="'analyzeDialog.placeholder' | translate"
+        required
+        [value]="projectName()"
+        [error]="nameError()"
+        (valueChange)="onNameInput($event)"
+      ></ui-input>
+
+      <!-- Color Picker -->
+      <div class="analyze-dialog__colors" role="radiogroup" [attr.aria-label]="'analyzeDialog.projectColor' | translate">
+        @for (color of colorOptions; track color.value) {
+          <button
+            type="button"
+            role="radio"
+            class="analyze-dialog__color-dot"
+            [class.analyze-dialog__color-dot--selected]="selectedColor() === color.value"
+            [style.background-color]="color.value"
+            [attr.aria-checked]="selectedColor() === color.value"
+            [attr.aria-label]="color.label"
+            (click)="selectColor(color.value)"
+          ></button>
+        }
+      </div>
+
+      @if (serverError(); as error) {
+        <p class="analyze-dialog__error" role="alert">{{ error }}</p>
+      }
+    </div>
+
+    <footer class="analyze-dialog__footer">
+      <ui-button variant="secondary" (click)="close()">{{ 'analyzeDialog.cancel' | translate }}</ui-button>
+      <ui-button
+        variant="primary"
+        [loading]="loading()"
+        [disabled]="loading()"
+        (click)="onSubmit()"
+      >
+        @if (loading()) {
+          {{ 'analyzeDialog.uploading' | translate }}
+        } @else {
+          {{ 'analyzeDialog.startAnalysis' | translate }}
+        }
+      </ui-button>
+    </footer>
+  </div>
+</dialog>

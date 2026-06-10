@@ -1,0 +1,74 @@
+<dialog
+  #dialog
+  class="deep-analysis-dialog"
+  aria-labelledby="deep-analysis-dialog-title"
+  aria-describedby="deep-analysis-dialog-desc"
+  (close)="onDialogClose()"
+  (click)="onBackdropClick($event)"
+  (keydown.escape)="close()"
+  tabindex="-1"
+>
+  <div class="deep-analysis-dialog__panel">
+    <header class="deep-analysis-dialog__header">
+      <div>
+        <h2 id="deep-analysis-dialog-title" class="deep-analysis-dialog__title">
+          {{ 'analysis.deepAnalysisDialogTitle' | translate }}
+        </h2>
+        <p id="deep-analysis-dialog-desc" class="deep-analysis-dialog__subtitle">
+          {{ 'analysis.deepAnalysisDialogDescription' | translate }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="deep-analysis-dialog__close"
+        [attr.aria-label]="'analyzeDialog.closeDialog' | translate"
+        (click)="close()"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="deep-analysis-dialog__body">
+      <div class="deep-analysis-dialog__field">
+        <label class="deep-analysis-dialog__label" for="deep-analysis-query">
+          {{ 'analysis.deepAnalysisQueryLabel' | translate }}
+        </label>
+        <textarea
+          id="deep-analysis-query"
+          class="deep-analysis-dialog__textarea"
+          [attr.placeholder]="'analysis.deepAnalysisQueryPlaceholder' | translate"
+          [value]="query()"
+          (input)="onQueryInput($event)"
+          rows="4"
+        ></textarea>
+      </div>
+
+      @if (serverError(); as error) {
+        <p class="deep-analysis-dialog__error" role="alert">{{ error }}</p>
+      }
+    </div>
+
+    <footer class="deep-analysis-dialog__footer">
+      <ui-button variant="secondary" (click)="close()">{{ 'analyzeDialog.cancel' | translate }}</ui-button>
+      <ui-button
+        variant="primary"
+        [loading]="loading()"
+        [disabled]="loading() || !query().trim()"
+        (click)="onSubmit()"
+      >
+        @if (loading()) {
+          {{ 'analysis.deepAnalysisStarting' | translate }}
+        } @else {
+          {{ 'analysis.deepAnalysisStart' | translate }}
+        }
+      </ui-button>
+    </footer>
+  </div>
+</dialog>

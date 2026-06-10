@@ -1,0 +1,560 @@
+<div class="analysis">
+  <!-- Sidebar -->
+  <aside class="analysis__sidebar">
+    <ui-button variant="primary" size="medium" class="analysis__new-btn" (click)="startNewAnalysis()">
+      <span slot="icon-left" aria-hidden="true">+</span>
+      {{ 'analysis.newAnalysis' | translate }}
+    </ui-button>
+
+    <div class="analysis__history-tabs" role="tablist" [attr.aria-label]="'analysis.history' | translate">
+      <button
+        type="button"
+        role="tab"
+        class="analysis__history-tab"
+        [class.analysis__history-tab--active]="activeHistoryTab() === 'chat'"
+        [attr.aria-selected]="activeHistoryTab() === 'chat'"
+        (click)="setHistoryTab('chat')"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 3C2 1.89543 2.89543 1 4 1H12C13.1046 1 14 1.89543 14 3V9C14 10.1046 13.1046 11 12 11H5L2 14V3Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        {{ 'analysis.chatHistory' | translate }}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="analysis__history-tab"
+        [class.analysis__history-tab--active]="activeHistoryTab() === 'deepAnalysis'"
+        [attr.aria-selected]="activeHistoryTab() === 'deepAnalysis'"
+        (click)="setHistoryTab('deepAnalysis')"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M4 2h5.586a1 1 0 0 1 .707.293l2.414 2.414A1 1 0 0 1 13 5.414V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M9 2v3a1 1 0 0 0 1 1h3" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+        {{ 'analysis.deepAnalysisHistory' | translate }}
+      </button>
+    </div>
+
+    @if (activeHistoryTab() === 'chat') {
+      @if (threads().length === 0) {
+        <div class="analysis__history-empty">
+          <svg class="analysis__history-empty-icon" width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <circle cx="20" cy="20" r="18" stroke="#d1d5db" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <path d="M20 12V20L25 25" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <p class="analysis__history-empty-title">{{ 'analysis.noConversations' | translate }}</p>
+          <p class="analysis__history-empty-desc">{{ 'analysis.historyEmpty' | translate }}</p>
+        </div>
+      } @else {
+        <ul class="analysis__history" role="list">
+          @for (thread of threads(); track thread.chat_id) {
+            <li class="analysis__history-item"
+                [class.analysis__history-item--active]="activeChatId() === thread.chat_id"
+                (click)="selectThread(thread)"
+                (keydown.enter)="selectThread(thread)"
+                tabindex="0"
+                role="button">
+              <svg class="analysis__history-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <rect x="1" y="1" width="16" height="12" rx="2" stroke="#9CA3AF" stroke-width="1.5"/>
+                <path d="M1 11L5 8L9 11" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <div class="analysis__history-text">
+                <span class="analysis__history-title">
+                  {{ thread.title || ('analysis.conversation' | translate) }}
+                </span>
+                <span class="analysis__history-time">
+                  {{ threadTimeAgo(thread.updated_at) }}
+                </span>
+              </div>
+              <button type="button"
+                      class="analysis__history-delete-btn"
+                      [attr.aria-label]="'analysis.deleteThread' | translate"
+                      (click)="deleteThread($event, thread.chat_id)">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M5 2V1h6v1h4v1.5H1V2h4ZM3 5h10l-.8 9.4a1 1 0 0 1-1 .6H4.8a1 1 0 0 1-1-.6L3 5Z"
+                        stroke="currentColor" stroke-width="1.3"/>
+                </svg>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      @if (deepAnalyses().length === 0) {
+        <div class="analysis__history-empty">
+          <svg class="analysis__history-empty-icon" width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <circle cx="20" cy="20" r="18" stroke="#d1d5db" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <path d="M14 14h12M14 20h8M14 26h10" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <p class="analysis__history-empty-title">{{ 'analysis.deepAnalysisEmpty' | translate }}</p>
+          <p class="analysis__history-empty-desc">{{ 'analysis.deepAnalysisEmptyDesc' | translate }}</p>
+        </div>
+      } @else {
+        <ul class="analysis__history" role="list">
+          @for (analysis of deepAnalyses(); track analysis.id) {
+            <li class="analysis__history-item"
+                [class.analysis__history-item--active]="activeDeepAnalysisId() === analysis.id"
+                (click)="selectDeepAnalysis(analysis)"
+                (keydown.enter)="selectDeepAnalysis(analysis)"
+                tabindex="0"
+                role="button">
+              <svg class="analysis__history-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M5 2h5.586a1 1 0 0 1 .707.293l2.414 2.414A1 1 0 0 1 14 5.414V15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" stroke="#9CA3AF" stroke-width="1.3"/>
+                <path d="M10 2v3a1 1 0 0 0 1 1h3" stroke="#9CA3AF" stroke-width="1.3"/>
+              </svg>
+              <div class="analysis__history-text">
+                <span class="analysis__history-title">
+                  {{ analysis.query }}
+                </span>
+                <div class="analysis__history-meta">
+                  <span class="analysis__history-status" [class]="deepAnalysisStatusClass(analysis.status)">
+                    {{ deepAnalysisStatusLabel(analysis.status) }}
+                  </span>
+                  <span class="analysis__history-time">
+                    {{ threadTimeAgo(analysis.created_at) }}
+                  </span>
+                </div>
+              </div>
+              <button type="button"
+                      class="analysis__history-delete-btn"
+                      [attr.aria-label]="'analysis.deepAnalysisDeleteConfirm' | translate"
+                      (click)="deleteDeepAnalysis($event, analysis.id)">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M5 2V1h6v1h4v1.5H1V2h4ZM3 5h10l-.8 9.4a1 1 0 0 1-1 .6H4.8a1 1 0 0 1-1-.6L3 5Z"
+                        stroke="currentColor" stroke-width="1.3"/>
+                </svg>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    }
+  </aside>
+
+  <!-- Main content -->
+  <div class="analysis__main">
+    <!-- Top bar -->
+    <div class="analysis__topbar">
+      <div class="analysis__stats">
+        <div class="analysis__stat">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 3C2 2.44772 2.44772 2 3 2H5.58579C5.851 2 6.10536 2.10536 6.29289 2.29289L7.70711 3.70711C7.89464 3.89464 8.149 4 8.41421 4H13C13.5523 4 14 4.44772 14 5V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3Z" stroke="#6B7280" stroke-width="1.5"/>
+          </svg>
+          <span class="analysis__stat-label">{{ 'analysis.files' | translate }}</span>
+          <span class="analysis__stat-value">{{ fileCount() }}</span>
+        </div>
+
+        <div class="analysis__stat">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 4L8 2L12 4M4 12L8 14L12 12M4 4V12M12 4V12M8 2V14" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="analysis__stat-label">{{ 'analysis.linesOfCode' | translate }}</span>
+          <span class="analysis__stat-value">{{ linesOfCode() }}</span>
+        </div>
+
+        @if (!isZipUpload()) {
+          <div class="analysis__stat">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M5 3V13M11 3V13M5 8H11" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="analysis__stat-label">{{ 'analysis.branches' | translate }}</span>
+            <span class="analysis__stat-value">{{ branchCount() }}</span>
+          </div>
+
+          <div class="analysis__stat">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="5.5" cy="5" r="2.5" stroke="#6B7280" stroke-width="1.5"/>
+              <circle cx="10.5" cy="5" r="2.5" stroke="#6B7280" stroke-width="1.5"/>
+              <path d="M1 14C1 11.5 3 10 5.5 10C6.5 10 7.5 10.3 8 10.8C8.5 10.3 9.5 10 10.5 10C13 10 15 11.5 15 14" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="analysis__stat-label">{{ 'analysis.contributors' | translate }}</span>
+            <span class="analysis__stat-value">{{ contributorCount() }}</span>
+          </div>
+        }
+      </div>
+
+      <div class="analysis__role-toggle" role="group" [attr.aria-label]="'analysis.selectRole' | translate">
+        <button
+          type="button"
+          class="analysis__role-btn"
+          [class.analysis__role-btn--active]="activeRole() === 'Developer'"
+          (click)="setRole('Developer')"
+          [attr.aria-pressed]="activeRole() === 'Developer'"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6L8 2L12 6M4 10L8 14L12 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          {{ 'analysis.developer' | translate }}
+        </button>
+        <span class="analysis__role-btn-wrapper">
+          <button
+            type="button"
+            class="analysis__role-btn analysis__role-btn--disabled"
+            disabled
+            aria-disabled="true"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="4" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M5 4V3C5 1.89543 5.89543 1 7 1H9C10.1046 1 11 1.89543 11 3V4" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            {{ 'analysis.business' | translate }}
+          </button>
+          <span class="analysis__role-tooltip" aria-hidden="true">{{ 'analysis.comingSoon' | translate }}</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Center content: Deep Analysis Detail, Chat, or Explore -->
+    @if (isDeepAnalysisViewOpen()) {
+      <app-deep-analysis-detail
+        [analysis]="activeDeepAnalysisDetail()"
+        (downloadPdf)="onDownloadPdf($event)"
+        (retry)="retryDeepAnalysis($event)"
+      />
+    } @else if (isChatOpen()) {
+      <div class="analysis__chat" role="log" [attr.aria-label]="'analysis.chatConversation' | translate">
+        <div class="analysis__chat-header">
+          <svg class="analysis__chat-sparkle" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2L13.09 8.26L18 6L14.74 10.91L21 12L14.74 13.09L18 18L13.09 15.74L12 22L10.91 15.74L6 18L9.26 13.09L3 12L9.26 10.91L6 6L10.91 8.26L12 2Z" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <h1 class="analysis__chat-title">{{ 'analysis.codeAssistant' | translate }}</h1>
+        </div>
+
+        @if (loadingMessages()) {
+          <div class="analysis__center" aria-live="polite">
+            <ui-spinner size="large" [ariaLabel]="'common.loading' | translate"></ui-spinner>
+          </div>
+        } @else {
+        <div class="analysis__chat-messages">
+          @for (msg of chatMessages(); track $index) {
+            <div class="analysis__chat-row" [class.analysis__chat-row--user]="isUserRole(msg.role)">
+              @if (isAssistantRole(msg.role)) {
+                <div class="analysis__chat-avatar" aria-hidden="true">
+                  <span class="analysis__chat-avatar-label">A*</span>
+                </div>
+              }
+              <div class="analysis__chat-bubble" [class.analysis__chat-bubble--user]="isUserRole(msg.role)">
+                @if (msg.context; as ctx) {
+                  <div class="analysis__chat-context-inline">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M4 4L8 2L12 4M4 12L8 14L12 12M4 4V12M12 4V12M8 2V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>{{ ctx.fileName }} &rsaquo; {{ ctx.nodeLabel }}</span>
+                  </div>
+                }
+                @if (isStreaming() && $last && isAssistantRole(msg.role)) {
+                  @if (streamSegments().length === 0 && !msg.content) {
+                    <div class="analysis__chat-tool-indicator" role="status">
+                      <svg class="analysis__chat-tool-spinner" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="32.5 8" stroke-linecap="round"/>
+                      </svg>
+                      <span>{{ 'analysis.thinking' | translate }}</span>
+                    </div>
+                  }
+                  @for (seg of streamSegments(); track $index) {
+                    @if (seg.type === 'text' && seg.content) {
+                      <div class="analysis__chat-streaming">{{ seg.content }}</div>
+                    } @else if (seg.type === 'tool') {
+                      <div class="analysis__chat-tool-indicator" role="status">
+                        @if (seg.toolStatus === 'success') {
+                          <svg class="analysis__chat-tool-status-icon analysis__chat-tool-status-icon--success" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        } @else if (seg.toolStatus === 'error') {
+                          <svg class="analysis__chat-tool-status-icon analysis__chat-tool-status-icon--error" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M5.5 5.5L10.5 10.5M10.5 5.5L5.5 10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                          </svg>
+                        } @else {
+                          <svg class="analysis__chat-tool-spinner" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="32.5 8" stroke-linecap="round"/>
+                          </svg>
+                        }
+                        <span>{{ 'analysis.usingTool' | translate: { tool: seg.content } }}</span>
+                      </div>
+                    }
+                  }
+                  @if (hasActiveTool()) {
+                    <div class="analysis__chat-tool-indicator" role="status">
+                      <svg class="analysis__chat-tool-spinner" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="32.5 8" stroke-linecap="round"/>
+                      </svg>
+                    </div>
+                  } @else if (msg.content) {
+                    <span class="analysis__chat-cursor" aria-hidden="true"></span>
+                  }
+                } @else {
+                  @if (msg.reasoning && msg.reasoning.length > 0) {
+                    <div class="analysis__chat-reasoning-wrapper">
+                      <button
+                        type="button"
+                        class="analysis__chat-reasoning-toggle"
+                        [attr.aria-expanded]="isReasoningExpanded($index)"
+                        (click)="toggleReasoning($index)"
+                      >
+                        <svg
+                          class="analysis__chat-reasoning-chevron"
+                          [class.analysis__chat-reasoning-chevron--open]="isReasoningExpanded($index)"
+                          width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                        >
+                          <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        @if (isReasoningExpanded($index)) {
+                          {{ 'analysis.hideReasoning' | translate }}
+                        } @else {
+                          {{ 'analysis.showReasoning' | translate }}
+                        }
+                      </button>
+                      @if (isReasoningExpanded($index)) {
+                        <div class="analysis__chat-reasoning">
+                          @for (seg of msg.reasoning; track $index) {
+                            @if (seg.type === 'text' && seg.content) {
+                              <div class="analysis__chat-reasoning-segment" [innerHTML]="seg.content | markdown"></div>
+                            } @else if (seg.type === 'tool') {
+                              <div class="analysis__chat-reasoning-tool"
+                                   [class.analysis__chat-reasoning-tool--success]="seg.toolStatus === 'success'"
+                                   [class.analysis__chat-reasoning-tool--error]="seg.toolStatus === 'error'">
+                                @if (seg.toolStatus === 'success') {
+                                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.2"/>
+                                    <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                                  </svg>
+                                } @else if (seg.toolStatus === 'error') {
+                                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.2"/>
+                                    <path d="M5.5 5.5L10.5 10.5M10.5 5.5L5.5 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                                  </svg>
+                                } @else {
+                                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <path d="M6.86 1.45a1.2 1.2 0 0 1 2.28 0l.26.8a1.2 1.2 0 0 0 1.48.74l.8-.26a1.2 1.2 0 0 1 1.61 1.61l-.26.8a1.2 1.2 0 0 0 .74 1.48l.8.26a1.2 1.2 0 0 1 0 2.28l-.8.26a1.2 1.2 0 0 0-.74 1.48l.26.8a1.2 1.2 0 0 1-1.61 1.61l-.8-.26a1.2 1.2 0 0 0-1.48.74l-.26.8a1.2 1.2 0 0 1-2.28 0l-.26-.8a1.2 1.2 0 0 0-1.48-.74l-.8.26a1.2 1.2 0 0 1-1.61-1.61l.26-.8a1.2 1.2 0 0 0-.74-1.48l-.8-.26a1.2 1.2 0 0 1 0-2.28l.8-.26a1.2 1.2 0 0 0 .74-1.48l-.26-.8A1.2 1.2 0 0 1 4.32 1.93l.8.26a1.2 1.2 0 0 0 1.48-.74l.26-.8Z" stroke="currentColor" stroke-width="1.2"/>
+                                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+                                  </svg>
+                                }
+                                <span>{{ seg.content }}</span>
+                              </div>
+                            }
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                  <div class="markdown-body" [innerHTML]="msg.content | markdown" [appMermaid]="msg.content | markdown"></div>
+                }
+              </div>
+            </div>
+            @if (isAssistantRole(msg.role)) {
+              <div class="analysis__chat-actions">
+                <button
+                  type="button"
+                  class="analysis__chat-action-btn"
+                  [attr.aria-label]="'analysis.copyMessage' | translate"
+                  (click)="copyMessage(msg)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+                    <path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" stroke="currentColor" stroke-width="1.3"/>
+                  </svg>
+                </button>
+              </div>
+            }
+            <span
+              class="analysis__chat-time"
+              [class.analysis__chat-time--user]="isUserRole(msg.role)"
+            >{{ msg.timestamp | date:'h:mm:ss a' }}</span>
+          }
+        </div>
+        }
+
+        <div class="analysis__chat-footer">
+          <div class="analysis__chat-suggestions">
+            <span class="analysis__chat-suggestions-label">{{ 'analysis.suggestedQuestions' | translate }}</span>
+            <div class="analysis__chat-chips">
+              @for (q of chatSuggestions(); track q) {
+                <button
+                  type="button"
+                  class="analysis__chat-chip"
+                  [disabled]="isStreaming()"
+                  (click)="onSuggestionClick(q)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 2L13.09 8.26L18 6L14.74 10.91L21 12L14.74 13.09L18 18L13.09 15.74L12 22L10.91 15.74L6 18L9.26 13.09L3 12L9.26 10.91L6 6L10.91 8.26L12 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  {{ q }}
+                </button>
+              }
+            </div>
+          </div>
+
+          @if (chatContext(); as ctx) {
+            <div class="analysis__chat-context-tag">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 4L8 2L12 4M4 12L8 14L12 12M4 4V12M12 4V12M8 2V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="analysis__chat-context-label">{{ ctx.fileName }} &rsaquo; {{ ctx.nodeLabel }}</span>
+              <button
+                type="button"
+                class="analysis__chat-context-remove"
+                [attr.aria-label]="'analysis.removeContext' | translate"
+                (click)="clearChatContext()"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M10.5 3.5L3.5 10.5M3.5 3.5l7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          }
+
+          <div class="analysis__chat-input-bar">
+            <div class="analysis__chat-input-left">
+              <div class="analysis__chat-tools-wrapper">
+                <button
+                  type="button"
+                  class="analysis__chat-toolbar-btn analysis__chat-toolbar-btn--label"
+                  [attr.aria-expanded]="isToolsMenuOpen()"
+                  aria-haspopup="menu"
+                  (click)="toggleToolsMenu()"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M6.86 1.45a1.2 1.2 0 0 1 2.28 0l.26.8a1.2 1.2 0 0 0 1.48.74l.8-.26a1.2 1.2 0 0 1 1.61 1.61l-.26.8a1.2 1.2 0 0 0 .74 1.48l.8.26a1.2 1.2 0 0 1 0 2.28l-.8.26a1.2 1.2 0 0 0-.74 1.48l.26.8a1.2 1.2 0 0 1-1.61 1.61l-.8-.26a1.2 1.2 0 0 0-1.48.74l-.26.8a1.2 1.2 0 0 1-2.28 0l-.26-.8a1.2 1.2 0 0 0-1.48-.74l-.8.26a1.2 1.2 0 0 1-1.61-1.61l.26-.8a1.2 1.2 0 0 0-.74-1.48l-.8-.26a1.2 1.2 0 0 1 0-2.28l.8-.26a1.2 1.2 0 0 0 .74-1.48l-.26-.8A1.2 1.2 0 0 1 4.32 1.93l.8.26a1.2 1.2 0 0 0 1.48-.74l.26-.8Z" stroke="currentColor" stroke-width="1.2"/>
+                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+                  </svg>
+                  {{ 'analysis.tools' | translate }}
+                </button>
+                @if (isToolsMenuOpen()) {
+                  <div
+                    class="analysis__chat-tools-backdrop"
+                    role="button"
+                    tabindex="0"
+                    (click)="closeToolsMenu()"
+                    (keydown.enter)="closeToolsMenu()"
+                    (keydown.escape)="closeToolsMenu()"
+                    aria-label="Close tools menu"
+                  ></div>
+                  <div class="analysis__chat-tools-menu" role="menu">
+                    <button
+                      type="button"
+                      class="analysis__chat-tools-menu-item"
+                      role="menuitem"
+                      (click)="openGraphFromToolsMenu()"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M4 4L8 2L12 4M4 12L8 14L12 12M4 4V12M12 4V12M8 2V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      {{ 'analysis.browseGraph' | translate }}
+                    </button>
+                  </div>
+                }
+              </div>
+              <button type="button" class="analysis__chat-toolbar-btn" aria-label="Lock">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+                  <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            <input
+              type="text"
+              class="analysis__chat-input"
+              [attr.placeholder]="'analysis.chatWithDoc' | translate"
+              [(ngModel)]="chatInputValue"
+              (keydown.enter)="sendMessage()"
+              [attr.aria-label]="chatContextLabel()"
+            />
+            <button
+              type="button"
+              class="analysis__chat-send"
+              [attr.aria-label]="'analysis.sendMessage' | translate"
+              [disabled]="isStreaming()"
+              (click)="sendMessage()"
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M10 16V4M10 4L5 9M10 4L15 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    } @else {
+      <div class="analysis__center">
+        <h1 class="analysis__heading">{{ 'analysis.exploreCode' | translate }}</h1>
+        <p class="analysis__subheading">{{ 'analysis.exploreSubheading' | translate }}</p>
+
+        <div class="analysis__cta-group">
+          <button type="button" class="analysis__cta" (click)="openGraph()">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M7 2L3 10H8L7 18L17 8H11L13 2H7Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            {{ 'analysis.exploreGraph' | translate }}
+            <span aria-hidden="true">&#8594;</span>
+          </button>
+          <button type="button" class="analysis__cta analysis__cta--secondary" (click)="openDeepAnalysisDialog()">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M6 2h5.586a1 1 0 0 1 .707.293l3.414 3.414A1 1 0 0 1 16 6.414V17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M11 2v4a1 1 0 0 0 1 1h4" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M8 12h5M8 15h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            {{ 'analysis.deepAnalysis' | translate }}
+            <span aria-hidden="true">&#8594;</span>
+          </button>
+        </div>
+
+        <div class="analysis__divider">
+          <span>{{ 'analysis.orStartQuestion' | translate }}</span>
+        </div>
+
+        <div class="analysis__suggestions">
+          @for (question of suggestions(); track question) {
+            <button type="button" class="analysis__suggestion" (click)="onDefaultSuggestionClick(question)">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <rect x="1" y="1" width="16" height="12" rx="2" stroke="#9CA3AF" stroke-width="1.5"/>
+                <path d="M1 11L5 8L9 11" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              {{ question }}
+            </button>
+          }
+        </div>
+
+        <div class="analysis__custom-question">
+          <input
+            type="text"
+            class="analysis__custom-question-input"
+            [attr.placeholder]="'analysis.askOwnQuestion' | translate"
+            [(ngModel)]="customQuestionValue"
+            (keydown.enter)="onCustomQuestionSubmit()"
+            [attr.aria-label]="'analysis.askOwnQuestion' | translate"
+          />
+          <button
+            type="button"
+            class="analysis__custom-question-send"
+            [attr.aria-label]="'analysis.sendMessage' | translate"
+            [disabled]="!customQuestionValue()"
+            (click)="onCustomQuestionSubmit()"
+          >
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 16V4M10 4L5 9M10 4L15 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+
+  @if (isGraphOpen()) {
+    <app-graph-explorer
+      [repoId]="repoId()!"
+      [files]="files()"
+      (closed)="closeGraph()"
+      (chatRequested)="onChatRequested($event)"
+    />
+  }
+
+  @if (isDeepAnalysisDialogOpen()) {
+    <app-deep-analysis-dialog
+      [repoId]="repoId()!"
+      (closed)="closeDeepAnalysisDialog()"
+      (started)="onDeepAnalysisStarted($event)"
+    />
+  }
+</div>

@@ -1,0 +1,20 @@
+<div class="import">
+  @switch (state()) {
+    @case ('loading') {
+      <section class="import__card" aria-live="polite">
+        <ui-spinner size="large" [ariaLabel]="'import.loadingLabel' | translate"></ui-spinner>
+        <h1 class="import__title">{{ 'import.loadingTitle' | translate }}</h1>
+        <p class="import__text">{{ 'import.loadingText' | translate }}</p>
+      </section>
+    }
+    @case ('error') {
+      <section class="import__card" aria-live="assertive">
+        <h1 class="import__title">{{ 'import.errorTitle' | translate }}</h1>
+        <p class="import__text">{{ 'import.errorText' | translate }}</p>
+        <ui-button variant="danger" size="medium" (click)="goToDashboard()">
+          {{ 'import.goToDashboard' | translate }}
+        </ui-button>
+      </section>
+    }
+  }
+</div>

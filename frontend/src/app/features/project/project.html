@@ -1,0 +1,146 @@
+<div class="project">
+  @if (repo(); as repo) {
+    <!-- Project Header -->
+    <section class="project__header-card">
+      <div class="project__header-top">
+        <div>
+          <h1 class="project__title">{{ repo.name }}</h1>
+          <p class="project__description">{{ repoDescription() }}</p>
+        </div>
+        <div class="project__header-actions">
+          <button
+            type="button"
+            class="project__edit-btn"
+            [attr.aria-label]="'editRepoDialog.title' | translate"
+            (click)="openEditDialog()"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M11.5 1.5L14.5 4.5L5 14H2V11L11.5 1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <ui-button
+            variant="secondary"
+            size="medium"
+            (click)="shareProject()"
+            [attr.aria-label]="'project.shareLabel' | translate"
+          >
+            @if (linkCopied()) {
+              {{ 'project.linkCopied' | translate }}
+            } @else {
+              {{ 'project.share' | translate }}
+            }
+          </ui-button>
+          <ui-button
+            variant="danger"
+            size="medium"
+            [disabled]="isRunning()"
+            (click)="startAnalysis()"
+          >
+            {{ 'project.startAnalysis' | translate }}
+            <span slot="icon-right" aria-hidden="true">&#8594;</span>
+          </ui-button>
+        </div>
+      </div>
+
+      <div class="project__stats">
+        <div class="project__stat">
+          <div class="project__stat-label">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2 3C2 2.44772 2.44772 2 3 2H5.58579C5.851 2 6.10536 2.10536 6.29289 2.29289L7.70711 3.70711C7.89464 3.89464 8.149 4 8.41421 4H13C13.5523 4 14 4.44772 14 5V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3Z" stroke="#6B7280" stroke-width="1.5"/>
+            </svg>
+            {{ 'project.files' | translate }}
+          </div>
+          <div class="project__stat-value">{{ fileCount() }}</div>
+        </div>
+
+        <div class="project__stat">
+          <div class="project__stat-label">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" stroke="#6B7280" stroke-width="1.5"/>
+              <path d="M8 4.5V8L10.5 10.5" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            {{ 'project.lastEdit' | translate }}
+          </div>
+          <div class="project__stat-value">{{ lastEdit() }}</div>
+        </div>
+
+        @if (!isZipUpload()) {
+          <div class="project__stat">
+            <div class="project__stat-label">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M5 3V13M11 3V13M5 8H11" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              {{ 'project.branches' | translate }}
+            </div>
+            <div class="project__stat-value">{{ branchCount() }}</div>
+          </div>
+
+          <div class="project__stat">
+            <div class="project__stat-label">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 6L8 2L12 6M4 10L8 14L12 10" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              {{ 'project.contributors' | translate }}
+            </div>
+            <div class="project__stat-value">{{ contributorCount() }}</div>
+          </div>
+        }
+
+      </div>
+    </section>
+
+    @if (isRunning()) {
+      <!-- Analysis Running Banner -->
+      <section class="project__running-card" aria-live="polite">
+        <ui-spinner size="large" [ariaLabel]="'project.analysisRunningLabel' | translate"></ui-spinner>
+        <h2 class="project__running-title">{{ 'project.analysisInProgress' | translate }}</h2>
+        <p class="project__running-text">
+          {{ 'project.analysisRunningText' | translate }}
+        </p>
+      </section>
+    } @else {
+      <!-- Language Breakdown -->
+      <section class="project__section-card" [class.project__section-card--disabled]="isZipUpload()">
+        <h2 class="project__section-title">{{ 'project.languageBreakdown' | translate }}</h2>
+        @if (isZipUpload()) {
+          <div class="project__coming-soon-banner" aria-label="{{ 'project.comingSoon' | translate }}">
+            <span class="project__coming-soon-badge">{{ 'project.comingSoon' | translate }}</span>
+          </div>
+        }
+        <div class="project__languages" [attr.aria-hidden]="isZipUpload() || null">
+          @for (lang of languages(); track lang.name) {
+            <div class="project__language">
+              <div class="project__language-header">
+                <span class="project__language-name">{{ lang.name }}</span>
+                <span class="project__language-percent">{{ lang.percentage }}%</span>
+              </div>
+              <div class="project__language-bar" role="progressbar" [attr.aria-valuenow]="lang.percentage" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="lang.name + ' ' + lang.percentage + '%'">
+                <div class="project__language-fill" [style.width.%]="lang.percentage" [style.background-color]="lang.color"></div>
+              </div>
+            </div>
+          }
+        </div>
+      </section>
+
+      <!-- README -->
+      @if (repo.content; as content) {
+        <section class="project__section-card">
+          <h2 class="project__section-title">{{ 'project.readme' | translate }}</h2>
+          <div class="project__readme markdown-body" [innerHTML]="content | markdown" [appMermaid]="content | markdown"></div>
+        </section>
+      }
+    }
+  } @else {
+    <div class="project__loading">
+      <ui-spinner size="large" [ariaLabel]="'project.loadingLabel' | translate"></ui-spinner>
+    </div>
+  }
+</div>
+
+@if (editingRepo(); as editRepo) {
+  <app-edit-repo-dialog
+    [repo]="editRepo"
+    (closed)="closeEditDialog()"
+    (saved)="onRepoSaved()"
+  />
+}

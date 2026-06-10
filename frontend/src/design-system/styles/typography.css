@@ -1,0 +1,136 @@
+:root {
+    --font-family-inter: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Appliquer la police Inter une fois pour toutes les variantes */
+[class^="title-"],
+[class^="caption-"],
+[class^="bold-"] {
+    font-family: var(--font-family-inter), sans-serif;
+}
+
+/* Headings utilitaires basés sur les tokens Typography */
+.title-2 {
+    font-weight: 500;
+    font-size: 32px;
+    line-height: 38px;
+}
+
+.title-1 {
+    font-weight: 500;
+    font-size: 28px;
+    line-height: 34px;
+}
+
+.title-1--semi {
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 29px;
+}
+
+.title-1--medium {
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 29px;
+}
+
+.title-1--regular {
+    font-weight: 400;
+    font-size: 24px;
+    line-height: 36px;
+}
+
+.title-3 {
+    font-weight: 600;
+    font-size: 20px;
+    line-height: 30px;
+}
+
+.title-3--medium {
+    font-weight: 500;
+    font-size: 20px;
+    line-height: 30px;
+}
+
+.title-3--regular {
+    font-weight: 400;
+    font-size: 20px;
+    line-height: 30px;
+}
+
+.title-3--compact {
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 27px;
+}
+
+.title-4 {
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 24px;
+}
+
+.title-4--medium {
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 24px;
+}
+
+.title-4--regular {
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 24px;
+}
+
+.title-4--micro {
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 24px;
+}
+
+.title-4--micro-medium {
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 24px;
+}
+
+.title-4--micro-regular {
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 24px;
+}
+
+/* Utilitaire: souligné pour title-4 micro-medium */
+.title-4--micro-medium-underline {
+    text-decoration: underline;
+}
+
+/* Captions & Bold */
+.caption-1 {
+    font-weight: 500;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.caption-2 {
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.bold-12 {
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.bold-10 {
+    font-weight: 700;
+    font-size: 10px;
+    line-height: 15px;
+}
+
+/* Utilitaire: souligné pour caption-2 */
+.caption-2-underline {
+    text-decoration: underline;
+}

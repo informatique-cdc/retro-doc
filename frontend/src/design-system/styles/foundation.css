@@ -1,0 +1,303 @@
+@import "tailwindcss";
+
+@theme {
+    --white-version-grey-white: #ffffff;
+    --white-version-grey-100: #f8f8f8;
+    --white-version-grey-200: #e9eaf0;
+    --white-version-grey-300: #e1e1e1;
+    --white-version-grey-400: #919299;
+    --white-version-grey-450: #75758a;
+    --white-version-grey-500: #616172;
+    --white-version-grey-600: #1d1e21;
+    --white-version-grey-700: #0c0d0d;
+    --white-version-grey-800: #000000;
+    --red-red-100: #ffcfce;
+    --red-red-200: #f01e1f;
+    --red-red-300: #a10301;
+    --success-success-100: #cdfad8;
+    --success-success-200: #54d575;
+    --success-success-300: #27a847;
+    --infos-infos-100: #eaf5ff;
+    --infos-infos-200: #0890ff;
+    --infos-infos-300: #0765b2;
+    --warning-warning-100: #fff9df;
+    --warning-warning-200: #ffab00;
+    --warning-warning-300: #cf6b00;
+    --danger-danger-100: #ffe7ef;
+    --danger-danger-200: #ff3366;
+    --danger-danger-300: #9e243f;
+    --black-version-white: #ffffff;
+    --black-version-grey-100: #f8f8f8;
+    --black-version-grey-200: #bebebe;
+    --black-version-grey-300: #828282;
+    --black-version-grey-400: #616171;
+    --black-version-grey-450: #616171;
+    --black-version-grey-500: #37383a;
+    --black-version-grey-600: #303135;
+    --black-version-grey-700: #27282a;
+    --black-version-grey-800: #1f2024;
+    --black-version-grey-900: #000000;
+
+    --radius-none: 0;
+    --radius-xxs: 4px;
+    --radius-xs: 8px;
+    --radius-sm: 12px;
+    --radius-md: 16px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+    --radius-full: 9999;
+
+    --spacing-none: 0;
+    --spacing-xxs: 2px;
+    --spacing-xs: 4px;
+    --spacing-sm: 6px;
+    --spacing-md: 8px;
+    --spacing-lg: 10px;
+    --spacing-xl: 12px;
+    --spacing-2xl: 16px;
+    --spacing-3xl: 20px;
+    --spacing-4xl: 24px;
+    --spacing-5xl: 32px;
+    --spacing-6xl: 36px;
+    --spacing-7xl: 40px;
+    --spacing-8xl: 48px;
+    --spacing-9xl: 56px;
+    --spacing-10xl: 72px;
+    --spacing-11xl: 96px;
+    --spacing-12xl: 120px;
+    --spacing-13xl: 132px;
+    --spacing-14xl: 196px;
+
+    /* Semantic color tokens for Tailwind utilities - these create utilities like text-danger, bg-background-default, etc. */
+    --color-background-default: #ffffff;
+    --color-background-secondary: var(--white-version-grey-100);
+    --color-background-inverse: var(--white-version-grey-600);
+    --color-background-selected: var(--white-version-grey-300);
+    --color-background-danger: var(--red-red-100);
+    --color-background-success: var(--success-success-100);
+    --color-background-warning: var(--warning-warning-100);
+    --color-background-infos: var(--infos-infos-100);
+    --color-border: var(--white-version-grey-200);
+    --color-border-disabled: var(--white-version-grey-200);
+    --color-border-black: var(--white-version-grey-600);
+    --color-border-selected: var(--white-version-grey-400);
+    --color-border-danger: var(--danger-danger-200);
+    --color-border-error: var(--danger-danger-200);
+    --color-border-success: var(--success-success-200);
+    --color-border-warning: var(--warning-warning-200);
+    --color-border-infos: var(--infos-infos-200);
+    --color-text-primary: var(--white-version-grey-600);
+    --color-text-secondary: var(--white-version-grey-500);
+    --color-text-tertiary: var(--white-version-grey-400);
+    --color-text-disabled: var(--white-version-grey-300);
+    --color-text-inverse: var(--white-version-grey-white);
+    --color-text-danger: var(--danger-danger-200);
+    --color-text-warning: var(--warning-warning-200);
+    --color-text-success: var(--success-success-200);
+    --color-text-infos: var(--infos-infos-200);
+    --color-text-link: var(--infos-infos-300);
+    /* Direct color tokens for utilities like text-danger (without text- prefix) */
+    --color-danger: var(--danger-danger-200);
+    --color-warning: var(--warning-warning-200);
+    --color-success: var(--success-success-200);
+    --color-infos: var(--infos-infos-200);
+}
+
+@theme dark {
+    --color-background-default: var(--black-version-grey-700);
+    --color-background-secondary: var(--black-version-grey-800);
+    --color-background-inverse: var(--black-version-grey-100);
+    --color-background-selected: var(--black-version-grey-400);
+    --color-background-red: var(--red-red-200);
+    --color-background-danger: var(--red-red-100);
+    --color-background-success: var(--success-success-100);
+    --color-background-warning: var(--warning-warning-100);
+    --color-background-infos: var(--infos-infos-100);
+    --color-border: var(--black-version-grey-500);
+    --color-border-disabled: var(--black-version-grey-300);
+    --color-border-black: var(--black-version-grey-100);
+    --color-border-selected: var(--black-version-grey-400);
+    --color-icon-primary: var(--black-version-grey-100);
+    --color-border-red: var(--red-red-200);
+    --color-border-danger: var(--danger-danger-200);
+    --color-border-success: var(--success-success-200);
+    --color-border-warning: var(--warning-warning-200);
+    --color-border-infos: var(--infos-infos-200);
+    --color-icon-secondary: var(--black-version-grey-300);
+    --color-icon-tertiary: var(--black-version-grey-400);
+    --color-icon-disabled: var(--black-version-grey-300);
+    --color-icon-inverse: var(--black-version-grey-600);
+    --color-icon-success: var(--success-success-300);
+    --color-icon-danger: var(--danger-danger-200);
+    --color-icon-warning: var(--warning-warning-200);
+    --color-icon-infos: var(--warning-warning-200);
+    --color-icon-red: var(--red-red-200);
+    --color-link-color-link: var(--black-version-grey-100);
+    --color-link-color-link-pressed: var(--black-version-grey-300);
+    --color-text-primary: var(--black-version-grey-100);
+    --color-text-secondary: var(--black-version-grey-200);
+    --color-text-colot-text-tertiary: var(--black-version-grey-400);
+    --color-text-disabled: var(--black-version-grey-300);
+    --color-text-inverse: var(--black-version-grey-600);
+    --color-text-danger: var(--danger-danger-200);
+    --color-text-warning: var(--warning-warning-200);
+    --color-text-success: var(--success-success-200);
+    --color-text-infos: var(--warning-warning-200);
+    --color-text-link: var(--infos-infos-200);
+    /*
+      Shadows: on remappe les variables standard vers leurs variantes dark.
+      Ainsi, un consumer peut continuer à utiliser `shadow-*` et obtenir
+      automatiquement le bon rendu selon le thème.
+    */
+    --shadow-light: var(--shadow-dark-light);
+    --shadow-mid: var(--shadow-dark-mid);
+    --shadow-mid-hover: var(--shadow-dark-mid-hover);
+    --shadow-strong: var(--shadow-dark-strong);
+    --shadow-invert-light: var(--shadow-invert-dark-light);
+    --shadow-invert-mid: var(--shadow-invert-dark-mid);
+    --shadow-invert-mid-hover: var(--shadow-invert-dark-mid-hover);
+    --shadow-invert-strong: var(--shadow-invert-dark-strong);
+}
+
+@theme light {
+    --color-background-default: #ffffff;
+    --color-background-secondary: var(--white-version-grey-100);
+    --color-background-inverse: var(--white-version-grey-600);
+    --color-background-selected: var(--white-version-grey-300);
+    --color-background-red: var(--red-red-200);
+    --color-background-danger: var(--red-red-100);
+    --color-background-success: var(--success-success-100);
+    --color-background-warning: var(--warning-warning-100);
+    --color-background-infos: var(--infos-infos-100);
+    --color-border: var(--white-version-grey-200);
+    --color-border-disabled: var(--white-version-grey-200);
+    --color-border-black: var(--white-version-grey-600);
+    --color-border-selected: var(--white-version-grey-400);
+    --color-icon-primary: var(--white-version-grey-600);
+    --color-border-red: var(--red-red-200);
+    --color-border-danger: var(--danger-danger-200);
+    --color-border-success: var(--success-success-200);
+    --color-border-warning: var(--warning-warning-200);
+    --color-border-infos: var(--infos-infos-200);
+    --color-icon-secondary: var(--white-version-grey-500);
+    --color-icon-tertiary: var(--white-version-grey-400);
+    --color-icon-disabled: var(--white-version-grey-300);
+    --color-icon-inverse: var(--white-version-grey-white);
+    --color-icon-success: var(--success-success-200);
+    --color-icon-danger: var(--danger-danger-200);
+    --color-icon-warning: var(--warning-warning-200);
+    --color-icon-infos: var(--infos-infos-200);
+    --color-icon-red: var(--red-red-200);
+    --color-link-color-link: var(--white-version-grey-600);
+    --color-link-color-link-pressed: var(--white-version-grey-500);
+    --color-text-primary: var(--white-version-grey-600);
+    --color-text-secondary: var(--white-version-grey-500);
+    --color-text-colot-text-tertiary: var(--white-version-grey-400);
+    --color-text-disabled: var(--white-version-grey-300);
+    --color-text-inverse: var(--white-version-grey-white);
+    --color-text-danger: var(--danger-danger-200);
+    --color-text-warning: var(--warning-warning-200);
+    --color-text-success: var(--success-success-200);
+    --color-text-infos: var(--infos-infos-200);
+    --color-text-link: var(--infos-infos-300);
+}
+
+[data-layer="dark"], .dark {
+    --color-background-default: var(--black-version-grey-700);
+    --color-background-secondary: var(--black-version-grey-800);
+    --color-background-inverse: var(--black-version-grey-100);
+    --color-background-selected: var(--black-version-grey-400);
+    --color-background-red: var(--red-red-200);
+    --color-background-danger: var(--red-red-100);
+    --color-background-success: var(--success-success-100);
+    --color-background-warning: var(--warning-warning-100);
+    --color-background-infos: var(--infos-infos-100);
+    --color-border: var(--black-version-grey-500);
+    --color-border-disabled: var(--black-version-grey-300);
+    --color-border-black: var(--black-version-grey-100);
+    --color-border-selected: var(--black-version-grey-400);
+    --color-icon-primary: var(--black-version-grey-100);
+    --color-border-red: var(--red-red-200);
+    --color-border-danger: var(--danger-danger-200);
+    --color-border-success: var(--success-success-200);
+    --color-border-warning: var(--warning-warning-200);
+    --color-border-infos: var(--infos-infos-200);
+    --color-icon-secondary: var(--black-version-grey-300);
+    --color-icon-tertiary: var(--black-version-grey-400);
+    --color-icon-disabled: var(--black-version-grey-300);
+    --color-icon-inverse: var(--black-version-grey-600);
+    --color-icon-success: var(--success-success-300);
+    --color-icon-danger: var(--danger-danger-200);
+    --color-icon-warning: var(--warning-warning-200);
+    --color-icon-infos: var(--warning-warning-200);
+    --color-icon-red: var(--red-red-200);
+    --color-link-color-link: var(--black-version-grey-100);
+    --color-link-color-link-pressed: var(--black-version-grey-300);
+    --color-text-primary: var(--black-version-grey-100);
+    --color-text-secondary: var(--black-version-grey-200);
+    --color-text-colot-text-tertiary: var(--black-version-grey-400);
+    --color-text-disabled: var(--black-version-grey-300);
+    --color-text-inverse: var(--black-version-grey-600);
+    --color-text-danger: var(--danger-danger-200);
+    --color-text-warning: var(--warning-warning-200);
+    --color-text-success: var(--success-success-200);
+    --color-text-infos: var(--warning-warning-200);
+    --color-text-link: var(--infos-infos-200);
+    /*
+      Shadows: on remappe les variables standard vers leurs variantes dark.
+      Ainsi, un consumer peut continuer à utiliser `shadow-*` et obtenir
+      automatiquement le bon rendu selon le thème.
+    */
+    --shadow-light: var(--shadow-dark-light);
+    --shadow-mid: var(--shadow-dark-mid);
+    --shadow-mid-hover: var(--shadow-dark-mid-hover);
+    --shadow-strong: var(--shadow-dark-strong);
+    --shadow-invert-light: var(--shadow-invert-dark-light);
+    --shadow-invert-mid: var(--shadow-invert-dark-mid);
+    --shadow-invert-mid-hover: var(--shadow-invert-dark-mid-hover);
+    --shadow-invert-strong: var(--shadow-invert-dark-strong);
+}
+
+[data-layer="light"],
+.light {
+    --color-background-default: #ffffff;
+    --color-background-secondary: var(--white-version-grey-100);
+    --color-background-inverse: var(--white-version-grey-600);
+    --color-background-selected: var(--white-version-grey-300);
+    --color-background-red: var(--red-red-200);
+    --color-background-danger: var(--red-red-100);
+    --color-background-success: var(--success-success-100);
+    --color-background-warning: var(--warning-warning-100);
+    --color-background-infos: var(--infos-infos-100);
+    --color-border: var(--white-version-grey-200);
+    --color-border-disabled: var(--white-version-grey-200);
+    --color-border-black: var(--white-version-grey-600);
+    --color-border-selected: var(--white-version-grey-400);
+    --color-icon-primary: var(--white-version-grey-600);
+    --color-border-red: var(--red-red-200);
+    --color-border-danger: var(--danger-danger-200);
+    --color-border-success: var(--success-success-200);
+    --color-border-warning: var(--warning-warning-200);
+    --color-border-infos: var(--infos-infos-200);
+    --color-icon-secondary: var(--white-version-grey-500);
+    --color-icon-tertiary: var(--white-version-grey-400);
+    --color-icon-disabled: var(--white-version-grey-300);
+    --color-icon-inverse: var(--white-version-grey-white);
+    --color-icon-success: var(--success-success-200);
+    --color-icon-danger: var(--danger-danger-200);
+    --color-icon-warning: var(--warning-warning-200);
+    --color-icon-infos: var(--infos-infos-200);
+    --color-icon-red: var(--red-red-200);
+    --color-link-color-link: var(--white-version-grey-600);
+    --color-link-color-link-pressed: var(--white-version-grey-500);
+    --color-text-primary: var(--white-version-grey-600);
+    --color-text-secondary: var(--white-version-grey-500);
+    --color-text-colot-text-tertiary: var(--white-version-grey-400);
+    --color-text-disabled: var(--white-version-grey-300);
+    --color-text-inverse: var(--white-version-grey-white);
+    --color-text-danger: var(--danger-danger-200);
+    --color-text-warning: var(--warning-warning-200);
+    --color-text-success: var(--success-success-200);
+    --color-text-infos: var(--infos-infos-200);
+    --color-text-link: var(--infos-infos-300);
+}

@@ -1,0 +1,122 @@
+<div class="dashboard">
+  <header class="dashboard__header">
+    <span class="dashboard__label">{{ 'sidebar.recentProjects' | translate }} :</span>
+    <div class="dashboard__search">
+      <svg class="dashboard__search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <input
+        type="text"
+        class="dashboard__search-input"
+        [attr.placeholder]="'dashboard.searchPlaceholder' | translate"
+        [ngModel]="searchQuery()"
+        (ngModelChange)="searchQuery.set($event)"
+        aria-label="Search projects"
+      />
+    </div>
+  </header>
+
+  @if (loading() || searching()) {
+    <ul class="dashboard__grid" role="list" aria-busy="true">
+      @for (item of skeletonItems; track $index) {
+        <li>
+          <div class="card card--skeleton" aria-hidden="true">
+            <div class="card__top">
+              <div class="skeleton skeleton--icon"></div>
+              <div class="skeleton skeleton--lang"></div>
+            </div>
+            <div class="skeleton skeleton--name"></div>
+            <div class="card__meta">
+              <div class="skeleton skeleton--meta"></div>
+              <div class="skeleton skeleton--meta"></div>
+            </div>
+          </div>
+        </li>
+      }
+    </ul>
+  } @else if (filteredRepos()!.length === 0) {
+    <p class="dashboard__empty">{{ 'dashboard.empty' | translate }}</p>
+  } @else {
+    <ul class="dashboard__grid" role="list">
+      @for (repo of filteredRepos()!; track repo.repo_id) {
+        <li>
+          <button class="card" type="button" (click)="navigateToProject(repo)">
+            <button
+              type="button"
+              class="card__edit-btn"
+              [attr.aria-label]="'editRepoDialog.title' | translate"
+              (click)="openEditDialog(repo, $event)"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M11.5 1.5L14.5 4.5L5 14H2V11L11.5 1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div class="card__top">
+              <div
+                class="card__icon"
+                [style.background-color]="iconColors(repo).bg"
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 40 40"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M14 16C14 14.8954 14.8954 14 16 14H18.5858C18.851 14 19.1054 14.1054 19.2929 14.2929L20.7071 15.7071C20.8946 15.8946 21.149 16 21.4142 16H24C25.1046 16 26 16.8954 26 18V24C26 25.1046 25.1046 26 24 26H16C14.8954 26 14 25.1046 14 24V16Z"
+                    [attr.fill]="iconColors(repo).fill"
+                  />
+                </svg>
+              </div>
+              <span class="card__lang">{{ languageLabel(repo) }}</span>
+            </div>
+            <p class="card__name">{{ repo.name }}</p>
+            <div class="card__meta">
+              <span class="card__time">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="7"
+                    cy="7"
+                    r="6"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  />
+                  <path
+                    d="M7 4V7L9 9"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                {{ timeAgo(repo.updated_at) }}
+              </span>
+              <span class="card__files">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 2h5.586a1 1 0 0 1 .707.293l2.414 2.414A1 1 0 0 1 13 5.414V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M9 2v3a1 1 0 0 0 1 1h3" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+                &mdash; {{ 'dashboard.filesPlaceholder' | translate }}
+              </span>
+            </div>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+</div>
+
+@if (editingRepo(); as repo) {
+  <app-edit-repo-dialog
+    [repo]="repo"
+    (closed)="closeEditDialog()"
+    (saved)="onRepoSaved()"
+  />
+}

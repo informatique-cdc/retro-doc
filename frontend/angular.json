@@ -1,0 +1,110 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": {
+    "packageManager": "npm",
+    "schematicCollections": [
+      "angular-eslint"
+    ],
+    "analytics": false
+  },
+  "newProjectRoot": "projects",
+  "projects": {
+    "retro-doc-frontend": {
+      "projectType": "application",
+      "schematics": {
+        "@schematics/angular:component": {
+          "style": "scss"
+        }
+      },
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "allowedCommonJsDependencies": [
+              "cytoscape-fcose",
+              "cytoscape-cose-bilkent",
+              "cytoscape-dagre",
+              "@braintree/sanitize-url",
+              "dayjs",
+              "dayjs/plugin/isoWeek.js",
+              "dayjs/plugin/customParseFormat.js",
+              "dayjs/plugin/advancedFormat.js",
+              "dayjs/plugin/duration.js",
+              "vscode-languageserver-protocol",
+              "vscode-jsonrpc/lib/common/events.js",
+              "vscode-jsonrpc/lib/common/cancellation.js"
+            ],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public"
+              }
+            ],
+            "styles": [
+              "src/styles.scss",
+              "src/design-system/styles/design-system.css"
+            ]
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kB",
+                  "maximumError": "1MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "24kB",
+                  "maximumError": "48kB"
+                }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "conditions": ["module"]
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "retro-doc-frontend:build:production"
+            },
+            "development": {
+              "buildTarget": "retro-doc-frontend:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test"
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "src/**/*.ts",
+              "src/**/*.html"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+<div class="file-tree">
+  <div class="file-tree__search">
+    <label for="file-tree-search" class="file-tree__search-label">
+      {{ 'graphExplorer.fileTree.searchLabel' | translate }}
+    </label>
+    <div class="file-tree__search-field">
+      <svg class="file-tree__search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <input
+        id="file-tree-search"
+        type="search"
+        class="file-tree__search-input"
+        [placeholder]="'graphExplorer.fileTree.searchPlaceholder' | translate"
+        [value]="searchQuery()"
+        (input)="onSearchInput($any($event.target).value)"
+      />
+    </div>
+  </div>
+
+  <ul class="file-tree__list" role="tree" [attr.aria-label]="'graphExplorer.fileTree.treeLabel' | translate">
+    <ng-template #treeNodes let-nodes let-level="level">
+      @for (node of nodes; track node.id) {
+        <li
+          role="treeitem"
+          [attr.aria-expanded]="node.type === 'folder' ? effectiveExpandedIds().has(node.id) : null"
+          [attr.aria-selected]="node.type === 'file' && node.fileId === selectedFileId() ? true : null"
+        >
+          @if (node.type === 'folder') {
+            <button
+              type="button"
+              class="file-tree__folder-btn"
+              [style.padding-inline-start.px]="level * 16 + 8"
+              (click)="toggleFolder(node)"
+              (keydown)="onKeydown($event, node)"
+            >
+              <svg
+                class="file-tree__chevron"
+                [class.file-tree__chevron--expanded]="effectiveExpandedIds().has(node.id)"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="file-tree__name">{{ node.name }}</span>
+            </button>
+            @if (effectiveExpandedIds().has(node.id) && node.children) {
+              <ul role="group" class="file-tree__group">
+                <ng-container
+                  *ngTemplateOutlet="treeNodes; context: { $implicit: node.children, level: level + 1 }"
+                ></ng-container>
+              </ul>
+            }
+          } @else {
+            <button
+              type="button"
+              class="file-tree__file-btn"
+              [class.file-tree__file-btn--selected]="node.fileId === selectedFileId()"
+              [style.padding-inline-start.px]="level * 16 + 28"
+              (click)="selectFile(node)"
+              (keydown)="onKeydown($event, node)"
+            >
+              <span class="file-tree__name">{{ node.name }}</span>
+            </button>
+          }
+        </li>
+      }
+    </ng-template>
+
+    @if (filteredTree().length === 0) {
+      <li class="file-tree__no-results" role="presentation">
+        <p>{{ 'graphExplorer.fileTree.noResults' | translate }}</p>
+      </li>
+    } @else {
+      <ng-container
+        *ngTemplateOutlet="treeNodes; context: { $implicit: filteredTree(), level: 0 }"
+      ></ng-container>
+    }
+  </ul>
+</div>

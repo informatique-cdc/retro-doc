@@ -1,0 +1,137 @@
+<dialog
+  #dialog
+  class="graph-explorer"
+  aria-labelledby="graph-explorer-title"
+  aria-describedby="graph-explorer-subtitle"
+  (close)="onDialogClose()"
+  (click)="onBackdropClick($event)"
+  (keydown.escape)="close()"
+  tabindex="-1"
+>
+  <div class="graph-explorer__panel">
+    <header class="graph-explorer__header">
+      <div>
+        <h2 id="graph-explorer-title" class="graph-explorer__title">
+          {{ 'graphExplorer.title' | translate }}
+        </h2>
+        <p id="graph-explorer-subtitle" class="graph-explorer__subtitle">
+          {{ 'graphExplorer.subtitle' | translate }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="graph-explorer__close"
+        [attr.aria-label]="'graphExplorer.closeExplorer' | translate"
+        (click)="close()"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="graph-explorer__body">
+      <aside class="graph-explorer__sidebar">
+        <app-file-tree
+          [tree]="fileTree()"
+          [selectedFileId]="selectedFileId()"
+          (fileSelected)="onFileSelect($event)"
+        />
+      </aside>
+
+      <div class="graph-explorer__content">
+        <div class="graph-explorer__controls">
+          <div class="graph-explorer__graph-tabs" role="group" [attr.aria-label]="'graphExplorer.selectGraphType' | translate">
+            @for (type of ['ast', 'cfg', 'dfg']; track type) {
+              <button
+                type="button"
+                class="graph-explorer__tab"
+                [class.graph-explorer__tab--active]="selectedGraphType() === type"
+                [attr.aria-pressed]="selectedGraphType() === type"
+                (click)="onGraphTypeChange($any(type))"
+              >
+                {{ type | uppercase }}
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (availableScopes().length > 1) {
+          <div class="graph-explorer__scope-bar">
+            <label class="graph-explorer__scope-label" for="graph-scope-select">{{ 'graphExplorer.scope' | translate }}</label>
+            <select
+              id="graph-scope-select"
+              class="graph-explorer__scope-select"
+              [value]="selectedScope() ?? ''"
+              (change)="onScopeChange($any($event.target).value)"
+            >
+              @for (scope of availableScopes(); track scope) {
+                <option [value]="scope">{{ scope }}</option>
+              }
+            </select>
+          </div>
+        }
+
+        <div
+          #cyContainer
+          class="graph-explorer__canvas"
+          role="img"
+          [attr.aria-label]="graphDescription()"
+        ></div>
+
+        @if (!selectedFileId()) {
+          <div class="graph-explorer__placeholder">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <path
+                d="M14 6H30L38 14V38C38 40.2091 36.2091 42 34 42H14C11.7909 42 10 40.2091 10 38V10C10 7.79086 11.7909 6 14 6Z"
+                stroke="#9CA3AF"
+                stroke-width="2"
+              />
+              <path d="M30 6V14H38" stroke="#9CA3AF" stroke-width="2" />
+            </svg>
+            <p>{{ 'graphExplorer.selectFilePrompt' | translate }}</p>
+          </div>
+        }
+
+        @if (loading()) {
+          <div class="graph-explorer__placeholder">
+            <p>{{ 'graphExplorer.loadingGraph' | translate }}</p>
+          </div>
+        }
+
+        @if (error(); as errorMsg) {
+          <div class="graph-explorer__placeholder graph-explorer__placeholder--error">
+            <p>{{ errorMsg }}</p>
+          </div>
+        }
+
+        <div class="graph-explorer__sr-only" aria-live="polite">
+          {{ graphDescription() }}
+        </div>
+      </div>
+    </div>
+
+    <footer class="graph-explorer__footer">
+      <span class="graph-explorer__node-count">
+        {{ 'graphExplorer.nodesVisible' | translate:{ count: visibleNodeCount() } }}
+      </span>
+      @if (selectedFileName(); as name) {
+        <span class="graph-explorer__legend-sep" aria-hidden="true">&bull;</span>
+        <span class="graph-explorer__footer-file">{{ name }}</span>
+      }
+      <button
+        type="button"
+        class="graph-explorer__chat-btn"
+        [disabled]="!selectedNodeLabel()"
+        (click)="onChatAboutNode()"
+      >
+        {{ 'graphExplorer.chatAboutNode' | translate }}
+      </button>
+    </footer>
+  </div>
+</dialog>
