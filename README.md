@@ -79,7 +79,7 @@ graph LR
 
 ### Backend (`backend/`)
 
-[FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) (MongoDB ODM) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Loguru](https://loguru.readthedocs.io/)
+[FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Loguru](https://loguru.readthedocs.io/)
 
 ### Frontend (`frontend/`)
 
