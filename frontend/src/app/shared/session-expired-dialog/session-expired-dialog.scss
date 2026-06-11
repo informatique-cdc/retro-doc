@@ -1,0 +1,84 @@
+.session-expired {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0;
+  max-width: 26rem;
+  width: calc(100vw - 4rem);
+  margin: auto;
+  inset: 0;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.2);
+
+  &::backdrop {
+    background: rgb(0 0 0 / 0.5);
+  }
+}
+
+.session-expired__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 2rem 1.75rem;
+  text-align: center;
+}
+
+.session-expired__icon {
+  margin-bottom: 1rem;
+}
+
+.session-expired__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0 0 0.5rem;
+}
+
+.session-expired__message {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.session-expired__timer-track {
+  width: 100%;
+  height: 0.375rem;
+  border-radius: 1rem;
+  background: var(--color-border, #e5e7eb);
+  overflow: hidden;
+}
+
+.session-expired__timer-bar {
+  height: 100%;
+  border-radius: 1rem;
+  background: #dc2626;
+  transition: width 1s linear;
+}
+
+.session-expired__countdown {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0.75rem 0 0;
+}
+
+.session-expired__reconnect {
+  margin-top: 1.25rem;
+  padding: 0.5rem 1.5rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: #b91c1c;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: 2px;
+  }
+}

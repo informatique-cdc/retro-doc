@@ -1,0 +1,28 @@
+:host {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.dev-banner {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  text-align: center;
+  background-color: #fff3cd;
+  color: #664d03;
+  font-size: 0.875rem;
+  border-top: 1px solid #ffda6a;
+}

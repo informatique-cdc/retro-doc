@@ -1,0 +1,72 @@
+.design {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+
+  &__title {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  &__description {
+    margin-bottom: 2rem;
+    color: #555;
+
+    code {
+      background: #f0f0f0;
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.875em;
+    }
+  }
+
+  &__section {
+    margin-bottom: 2.5rem;
+  }
+
+  &__section-title {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e0e0e0;
+  }
+
+  &__section-description {
+    margin-bottom: 1.5rem;
+    color: #555;
+
+    code {
+      background: #f0f0f0;
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.875em;
+    }
+  }
+
+  &__subsection {
+    margin-bottom: 1.5rem;
+  }
+
+  &__subsection-title {
+    font-size: 1.125rem;
+    margin-bottom: 0.75rem;
+  }
+
+  &__component-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-end;
+  }
+
+  &__component-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  &__label {
+    font-size: 0.8125rem;
+    color: #777;
+  }
+}

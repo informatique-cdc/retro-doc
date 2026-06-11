@@ -1,0 +1,31 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: inherit;
+  text-decoration: inherit;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/*
+  IMPORTANT:
+  - Pas de layout (display:flex / place-items / min-height:100vh) ici.
+    Ce fichier est importé globalement via l'entrée design-system.css.
+  - Nos styles doivent rester neutres pour ne pas imposer de layout.
+*/
+body {
+  margin: 0;
+  min-width: 320px;
+}

@@ -1,0 +1,26 @@
+<header class="app-header" aria-label="Page header">
+  <nav class="app-header__breadcrumbs" aria-label="Breadcrumb">
+    @for (item of breadcrumbs(); track item.label; let first = $first) {
+      @if (!first) {
+        <span class="app-header__breadcrumb-sep" aria-hidden="true">&#8250;</span>
+      }
+      @if (item.route) {
+        <a [routerLink]="item.route" class="app-header__breadcrumb-link">{{ item.label | translate }}</a>
+      } @else {
+        <span class="app-header__breadcrumb-current" aria-current="page">{{ item.label | translate }}</span>
+      }
+    }
+  </nav>
+  <div class="app-header__actions">
+    @if (isAnalysisPage()) {
+      <button type="button" class="app-header__restart-btn" (click)="restart()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M12 1v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v-3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        {{ 'analysis.restart' | translate }}
+      </button>
+    }
+  </div>
+</header>

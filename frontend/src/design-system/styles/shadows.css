@@ -1,0 +1,29 @@
+/* Shadows (CSS-first)
+
+   API publique
+   - `shadow-*`       : classes utilitaires d'ombre
+   - `*-dark-*`       : variantes explicites (ne sont PAS activées automatiquement par le thème)
+*/
+
+/* Standard */
+.shadow-light { box-shadow: var(--shadow-light); }
+.shadow-mid { box-shadow: var(--shadow-mid); }
+.shadow-mid-hover { box-shadow: var(--shadow-mid-hover); }
+.shadow-strong { box-shadow: var(--shadow-strong); }
+
+/* Inverse */
+.shadow-invert-light { box-shadow: var(--shadow-invert-light); }
+.shadow-invert-mid { box-shadow: var(--shadow-invert-mid); }
+.shadow-invert-mid-hover { box-shadow: var(--shadow-invert-mid-hover); }
+.shadow-invert-strong { box-shadow: var(--shadow-invert-strong); }
+
+/* Variantes “dark” explicites */
+.shadow-dark-light { box-shadow: var(--shadow-dark-light); }
+.shadow-dark-mid { box-shadow: var(--shadow-dark-mid); }
+.shadow-dark-mid-hover { box-shadow: var(--shadow-dark-mid-hover); }
+.shadow-dark-strong { box-shadow: var(--shadow-dark-strong); }
+
+.shadow-invert-dark-light { box-shadow: var(--shadow-invert-dark-light); }
+.shadow-invert-dark-mid { box-shadow: var(--shadow-invert-dark-mid); }
+.shadow-invert-dark-mid-hover { box-shadow: var(--shadow-invert-dark-mid-hover); }
+.shadow-invert-dark-strong { box-shadow: var(--shadow-invert-dark-strong); }

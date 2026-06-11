@@ -1,0 +1,6 @@
+/* Design-system global entry — compiled by Tailwind v4 at build time. */
+@import "./base.css";
+@import "./foundation.css";
+@import "./shadows.css";
+@import "./token.css";
+@import "./typography.css";
