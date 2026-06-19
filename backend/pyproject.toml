@@ -15,7 +15,7 @@ dependencies = [
     "fastapi[standard]==0.135.1",
     "httpx>=0.28.1",
     "langchain>=1.2.10",
-    "langchain-anthropic>=1.4.1",
+    "langchain-anthropic>=1.4.6",
     "langchain-azure-ai>=1.1.1",
     "langchain-mistralai>=1.1.1",
     "langgraph-checkpoint-mongodb>=0.3.1",
