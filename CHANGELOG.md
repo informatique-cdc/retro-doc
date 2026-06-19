@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Deep-analysis PDF export is now rendered via [Gotenberg](https://gotenberg.dev/).
+
 ## [0.1.0] - 2026-06-11
 
 ### Added

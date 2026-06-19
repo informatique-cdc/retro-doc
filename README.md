@@ -57,11 +57,13 @@ graph LR
         Blob[(Blob Storage)]
         DB[(Cosmos DB<br/>for MongoDB)]
         Search[(Azure AI Search)]
+        Gotenberg["Gotenberg<br/>PDF rendering"]
     end
 
     Frontend -->|REST API| Backend
     Backend -->|triggers| Worker
     Backend -->|RAG| Search
+    Backend -->|PDF| Gotenberg
     Backend --> DB
     Backend --> Blob
     Worker --> Blob
@@ -79,7 +81,7 @@ graph LR
 
 ### Backend (`backend/`)
 
-[FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Loguru](https://loguru.readthedocs.io/)
+[FastAPI](https://fastapi.tiangolo.com/) &bull; [Beanie](https://beanie-odm.dev/) &bull; [LangChain](https://www.langchain.com/langchain/) &bull; [LangGraph](https://langchain-ai.github.io/langgraph/) &bull; [DeepAgents](https://www.langchain.com/deep-agents/) &bull; [Mistral AI](https://mistral.ai/) &bull; [Azure AI Search](https://learn.microsoft.com/azure/search/) &bull; [Gotenberg](https://gotenberg.dev/) &bull; [Loguru](https://loguru.readthedocs.io/)
 
 ### Frontend (`frontend/`)
 
@@ -109,18 +111,19 @@ Each component has its own dependency management and can be developed independen
 - [uv 0.10.9](https://docs.astral.sh/uv/)
 - [Node.js 22](https://nodejs.org/) (for the frontend and Azure Functions Core Tools)
 - [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local) (for the worker)
-- [Docker](https://www.docker.com/) (recommended, for running MongoDB locally)
+- [Docker](https://www.docker.com/) (for Gotenberg)
 
 ### Infrastructure Services
 
-The backend and the worker both require a **MongoDB** instance and an **Azure Blob Storage** account. For local development you can emulate both:
+The backend and the worker rely on several external services. Some can be run or emulated locally for development:
 
 | Service | Local alternative | Production |
 |---|---|---|
 | MongoDB | Docker | Azure Cosmos DB for MongoDB |
 | Blob Storage | [Azurite](https://github.com/Azure/Azurite) (included via npx) | Azure Blob Storage |
-| AI Search | No local emulator -- requires an [Azure AI Search](https://learn.microsoft.com/azure/search/) instance | Azure AI Search |
+| AI Search | No local emulator — requires an [Azure AI Search](https://learn.microsoft.com/azure/search/) instance | Azure AI Search |
 | LLM / Embeddings | Any [LangChain-supported chat model](https://python.langchain.com/docs/integrations/chat/) provider | Mistral AI / Azure OpenAI |
+| PDF rendering | Docker | Gotenberg sidecar container |
 
 > [!NOTE]
 > An LLM endpoint is required for the full analysis pipeline (graph extraction + documentation generation), the RAG chatbot, and deep analysis. An embedding model and Azure AI Search are required for the chatbot and deep analysis. None of these can be emulated locally.
@@ -131,10 +134,13 @@ The backend and the worker both require a **MongoDB** instance and an **Azure Bl
 cd backend
 cp .env.example .env        # fill in your credentials
 uv sync
+docker compose up -d        # start Gotenberg (PDF export)
 uv run uvicorn app.main:app --host localhost --port 8000
 ```
 
 API docs are available at `http://localhost:8000/docs` when `APP_DEBUG=True`.
+
+Stop the Docker services when you're done with `docker compose down`.
 
 ### Frontend
 
