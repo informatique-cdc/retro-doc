@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="github-markdown-light.css">
+    <script src="highlight.min.js"></script>
+    <script src="mermaid.min.js"></script>
+    <style>
+      body { margin: 0; padding: 2rem; }
+      .markdown-body { box-sizing: border-box; max-width: 100%; }
+      .mermaid { background: #fff; text-align: center; margin: 16px 0; }
+    </style>
+  </head>
+  <body>
+    <article class="markdown-body">{{ toHTML "report.md" }}</article>
+    <script>
+      (async () => {
+        // Promote ```mermaid fenced blocks from <pre><code> into <div class="mermaid">
+        // so Mermaid can pick them up. Done before highlight.js so the code is
+        // never syntax-tinted as a fallback.
+        const blocks = [];
+        document
+          .querySelectorAll('pre code.language-mermaid, pre code.lang-mermaid')
+          .forEach((code, i) => {
+            const id = 'mermaid-' + i;
+            const text = code.textContent;
+            const div = document.createElement('div');
+            div.className = 'mermaid';
+            div.id = id;
+            div.textContent = text;
+            code.parentElement.replaceWith(div);
+            blocks.push({ id, text });
+          });
+
+        hljs.highlightAll();
+
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+
+        // LLM-generated diagrams often contain `\n` / `\t` / `\"` literals
+        // inside labels, which Mermaid's parser rejects as unexpected `\`.
+        // Try once with the original source, then once after replacing those
+        // escape sequences with Mermaid-friendly equivalents.
+        const sanitize = (s) => s
+          .replace(/\\n/g, '<br/>')
+          .replace(/\\t/g, '    ')
+          .replace(/\\"/g, '#quot;');
+
+        const renderOne = async (node, text) => {
+          node.removeAttribute('data-processed');
+          node.textContent = text;
+          await mermaid.run({ nodes: [node] });
+        };
+
+        // Render diagrams one-by-one so a single bad chart doesn't abort the rest.
+        for (const { id, text } of blocks) {
+          const node = document.getElementById(id);
+          if (!node) continue;
+          try {
+            await renderOne(node, text);
+            continue;
+          } catch (_) { /* fall through to retry */ }
+          try {
+            await renderOne(node, sanitize(text));
+            continue;
+          } catch (_) { /* fall through to source fallback */ }
+          // Final fallback: show the diagram source as a code block so the
+          // user still sees the intent when Mermaid can't parse it.
+          const pre = document.createElement('pre');
+          const codeEl = document.createElement('code');
+          codeEl.className = 'language-mermaid';
+          codeEl.textContent = text;
+          pre.appendChild(codeEl);
+          node.replaceWith(pre);
+        }
+
+        window.__pdfReady = true;
+      })();
+    </script>
+  </body>
+</html>

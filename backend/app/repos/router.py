@@ -334,7 +334,11 @@ async def get_files_endpoint(
     )
 
 
-@repos_router.get("/{repo_id}/pipeline", response_model=PipelineStatusResponseModel)
+@repos_router.get(
+    "/{repo_id}/pipeline",
+    response_model=PipelineStatusResponseModel,
+    response_model_exclude_none=True,
+)
 async def get_repo_pipeline_endpoint(
     repo_id: PydanticObjectId,
     _user_repo: VerifiedUserRepo,
@@ -347,11 +351,12 @@ async def get_repo_pipeline_endpoint(
             (injected by FastAPI).
 
     Returns:
-        PipelineStatusResponseModel: Contains repo_id and status.
+        PipelineStatusResponseModel: Contains repo_id, status and optional meta information.
     """
     pipeline_run = await get_pipeline(repo_id)
 
     return PipelineStatusResponseModel(
         repo_id=repo_id,
         status=pipeline_run.status,
+        meta=pipeline_run.meta,
     )

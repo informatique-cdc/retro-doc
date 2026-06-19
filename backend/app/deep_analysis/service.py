@@ -7,16 +7,18 @@ prevented from garbage-collection by `_background_tasks`.
 """
 
 import asyncio
-import io
 import time
 from datetime import UTC, datetime, timedelta
+from functools import cache
+from pathlib import Path
 from typing import Any
 
+import httpx
 from beanie import PydanticObjectId
+from fastapi import HTTPException, status
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
-from markdown_pdf import MarkdownPdf, Section
 from pymongo.results import UpdateResult
 
 from app.auth.schemas import User
@@ -25,10 +27,12 @@ from app.deep_analysis.config import deep_analysis_settings
 from app.deep_analysis.llm import get_deep_agent
 from app.deep_analysis.models import DeepAnalysisDocument, DeepAnalysisStatus
 
+_PDF_TEMPLATE_DIR = Path(__file__).resolve().parent / "pdf_template"
+
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
-def _final_status_update(
+def _build_final_status_update(
     status: DeepAnalysisStatus, extra: dict[Any, Any] | None = None
 ) -> dict[str, dict[Any, Any]]:
     """Generate the update document for setting the final status of an analysis.
@@ -53,6 +57,43 @@ def _final_status_update(
             DeepAnalysisDocument.last_heartbeat_at: "",
         },
     }
+
+
+@cache
+def _load_pdf_html_template() -> bytes:
+    """Get the HTML template used as the Gotenberg rendering shell.
+
+    Returns:
+        bytes: Raw content of ``index.html``.
+    """
+    return (_PDF_TEMPLATE_DIR / "index.html").read_bytes()
+
+
+@cache
+def _load_pdf_vendor_assets() -> tuple[tuple[str, bytes, str], ...]:
+    """Get vendored CSS/JS assets bundled with each Gotenberg request.
+
+    Gotenberg's container has no internet access, so CSS/JS that used to
+    load from a CDN are bundled as extra multipart files. They are
+    deliberately **not** inlined: Gotenberg parses `index.html` through
+    Go's `html/template` engine, and minified JS routinely contains
+    `{{`/`}}` sequences that the template engine misinterprets as
+    actions, breaking the request before Chromium even starts.
+
+    Loaded lazily so module import does not depend on the asset files
+    being present.
+
+    Returns:
+        tuple[tuple[str, bytes, str], ...]: Tuples of (filename, content, MIME type).
+    """
+    return tuple(
+        (name, (_PDF_TEMPLATE_DIR / name).read_bytes(), mime)
+        for name, mime in (
+            ("github-markdown-light.css", "text/css"),
+            ("highlight.min.js", "application/javascript"),
+            ("mermaid.min.js", "application/javascript"),
+        )
+    )
 
 
 async def _mark_stale_analyses_as_failed(
@@ -222,7 +263,7 @@ async def _run_deep_analysis(
         update_result = await DeepAnalysisDocument.find_one(
             DeepAnalysisDocument.id == oid,
         ).update(
-            _final_status_update(
+            _build_final_status_update(
                 DeepAnalysisStatus.COMPLETED,
                 {
                     DeepAnalysisDocument.content: content,
@@ -246,7 +287,7 @@ async def _run_deep_analysis(
         update_result = await DeepAnalysisDocument.find_one(
             DeepAnalysisDocument.id == oid,
         ).update(
-            _final_status_update(
+            _build_final_status_update(
                 DeepAnalysisStatus.FAILED,
                 {
                     DeepAnalysisDocument.error: (
@@ -287,25 +328,53 @@ async def delete_analysis(analysis: DeepAnalysisDocument) -> None:
     await analysis.delete()
 
 
-def generate_analysis_pdf(analysis: DeepAnalysisDocument) -> bytes:
+async def generate_analysis_pdf(analysis: DeepAnalysisDocument) -> bytes:
     """Generate a PDF from a completed deep analysis.
 
-    Converts the markdown content directly to PDF using markdown-pdf
-    (backed by PyMuPDF), which handles Unicode natively.
+    Sends the markdown content to Gotenberg for conversion. The
+    `waitForExpression` parameter is set to `window.__pdfReady === true`,
+    a flag flipped by the in-page script once every Mermaid diagram has
+    rendered, so the PDF capture happens after the SVGs are in the DOM.
 
     Args:
         analysis(DeepAnalysisDocument): The completed analysis document.
 
     Returns:
         bytes: The generated PDF file content.
-    """
-    pdf = MarkdownPdf(toc_level=2)
-    pdf.add_section(Section(analysis.content or ""))
-    pdf.meta["title"] = analysis.query
 
-    buffer = io.BytesIO()
-    pdf.save(buffer)  # type: ignore[arg-type]
-    return buffer.getvalue()
+    Raises:
+        HTTPException: 502 if the PDF service is unreachable or returns an error.
+    """
+    base_url = deep_analysis_settings.GOTENBERG_BASE_URL
+    endpoint = "/forms/chromium/convert/markdown"
+    logger.debug(
+        f"Deep Analysis: PDF request for {str(analysis.id)}",
+    )
+    try:
+        async with httpx.AsyncClient(base_url=base_url) as client:
+            response = await client.post(
+                endpoint,
+                files=[
+                    ("files", ("index.html", _load_pdf_html_template(), "text/html")),
+                    ("files", ("report.md", analysis.content or "", "text/markdown")),
+                    *(
+                        ("files", (name, data, mime))
+                        for name, data, mime in _load_pdf_vendor_assets()
+                    ),
+                ],
+                data={"waitForExpression": "window.__pdfReady === true"},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+    except httpx.HTTPError:
+        logger.exception(
+            f"Deep Analysis: PDF service error for {str(analysis.id)}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="PDF generation service is unavailable.",
+        )
+    return response.content
 
 
 async def get_user_analyses(

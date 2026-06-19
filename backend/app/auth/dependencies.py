@@ -125,12 +125,12 @@ async def get_current_user(
             else gen_debug_payload()
         )
         return User(**payload)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from e
+        )
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

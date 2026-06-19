@@ -39,6 +39,9 @@ class DeepAnalysisSettings(BaseSettings):
     DEEP_AGENT_PROGRESS_FLUSH_INTERVAL_S: float = 1.0
     DEEP_AGENT_STALE_THRESHOLD_S: float = 450.0
 
+    # Gotenberg
+    GOTENBERG_BASE_URL: str
+
     # API response
     QUERY_PREVIEW_MAX_LENGTH: int = 50
 

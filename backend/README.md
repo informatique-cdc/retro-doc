@@ -18,8 +18,9 @@ The Retro-Doc project focuses on extracting knowledge from an existing codebase.
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) 0.10.9
+- [Docker](https://www.docker.com/) >=29.5.2
 
-> [!tip] 
+> [!tip]
 > Don't have uv? Install it with any python version like so:
 > ```zsh
 > pip install uv==0.10.9
@@ -47,12 +48,22 @@ prek install
 
 ## Usage
 
-To run the application locally, run the following:
+Start the required services (Gotenberg) via Docker Compose:
+```zsh
+docker compose up -d
+```
+
+Then run the application:
 ```zsh
 uvicorn app.main:app --host localhost --port 8000
 ```
 
 Then open to `http://localhost:8000/docs` to access the integrated [Swagger](https://swagger.io/) (only available when `APP_DEBUG` is set to `True`).
+
+To stop the Docker services when you're done:
+```zsh
+docker compose down
+```
 
 ## Notes
 

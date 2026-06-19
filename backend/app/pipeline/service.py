@@ -10,7 +10,7 @@ from loguru import logger
 
 from app.core.language_enum import Language
 from app.pipeline.config import pipeline_settings
-from app.pipeline.models import PipelineRunDocument, PipelineStatus
+from app.pipeline.models import PipelineMeta, PipelineRunDocument, PipelineStatus
 
 
 async def start_orchestration(
@@ -52,13 +52,15 @@ async def start_orchestration(
         await pipeline_run.set(
             {
                 PipelineRunDocument.status: PipelineStatus.FAILED,
-                PipelineRunDocument.meta: "Failed to start orchestration.",
+                PipelineRunDocument.meta: PipelineMeta(
+                    message="Failed to start orchestration.", step="launch"
+                ),
             }
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to start the analysis pipeline.",
-        ) from exc
+        )
 
     logger.debug(
         f"Pipeline: Started orchestration {instance_id} for repo '{pipeline_run.repo_id}'."

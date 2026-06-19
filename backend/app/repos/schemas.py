@@ -10,7 +10,7 @@ from beanie import PydanticObjectId
 from pydantic import BaseModel, Field
 
 from app.core.language_enum import Language
-from app.pipeline.models import PipelineStatus
+from app.pipeline.models import PipelineMeta, PipelineStatus
 
 
 class AnalyzeFileResponseModel(BaseModel):
@@ -26,6 +26,7 @@ class JoinRepoResponseModel(BaseModel):
 class PipelineStatusResponseModel(BaseModel):
     repo_id: PydanticObjectId
     status: PipelineStatus
+    meta: PipelineMeta | None = None
 
 
 class RepoResponseModel(BaseModel):

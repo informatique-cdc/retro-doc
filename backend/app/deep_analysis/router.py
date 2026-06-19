@@ -194,7 +194,7 @@ async def download_deep_analysis_pdf_endpoint(
             detail="Analysis is not yet completed.",
         )
 
-    pdf_bytes = generate_analysis_pdf(analysis)
+    pdf_bytes = await generate_analysis_pdf(analysis)
 
     return StreamingResponse(
         iter([pdf_bytes]),

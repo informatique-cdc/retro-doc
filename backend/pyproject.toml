@@ -13,13 +13,13 @@ dependencies = [
     "cryptography>=46.0.5",
     "deepagents>=0.6.1",
     "fastapi[standard]==0.135.1",
+    "httpx>=0.28.1",
     "langchain>=1.2.10",
     "langchain-anthropic>=1.4.1",
     "langchain-azure-ai>=1.1.1",
     "langchain-mistralai>=1.1.1",
     "langgraph-checkpoint-mongodb>=0.3.1",
     "loguru>=0.7.3",
-    "markdown-pdf>=1.13.1",
     "pyjwt>=2.11.0",
 ]
 
@@ -94,6 +94,7 @@ env = [
     "D:AZURE_AI_SEARCH_API_KEY=fake-search-key",
     "D:EMBEDDING_MODEL_ENDPOINT=https://fake-embedding.example.com",
     "D:EMBEDDING_MODEL_API_KEY=fake-embedding-key",
+    "D:GOTENBERG_BASE_URL=http://localhost:3000",
 ]
 
 [tool.ruff.lint]
