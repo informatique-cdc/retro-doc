@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Analyses can now target multiple languages per repository (previously a single language).
+- `GET /languages` endpoint listing the languages available for analysis.
+- Repository statistics captured during analysis (e.g. number of files and number of files
+  per extension).
+
 ### Changed
 
+- Authentication now issues short-lived, internally-signed access and refresh tokens; the
+  identity provider's OIDC token is verified only at sign-in.
+- Files are auto-detected by extension, and files outside the selected languages are kept rather
+  than discarded.
+- Improved AST, DFG, and CFG extraction.
 - Deep-analysis PDF export is now rendered via [Gotenberg](https://gotenberg.dev/).
 
 ## [0.1.0] - 2026-06-11
