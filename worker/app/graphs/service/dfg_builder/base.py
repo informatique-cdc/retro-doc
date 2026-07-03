@@ -29,4 +29,4 @@ class DFGBuilderService(ABC):
         Raises:
             Exception: If DFG building fails.
         """
-        pass
+        ...

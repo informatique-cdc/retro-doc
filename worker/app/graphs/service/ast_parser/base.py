@@ -27,4 +27,4 @@ class ASTParserService(ABC):
         Raises:
             Exception: If parsing fails.
         """
-        pass
+        ...

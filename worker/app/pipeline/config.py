@@ -1,6 +1,6 @@
 """Pipeline configuration.
 
-This module defines the pipeline configuration for the Retro-Documentation Backend Worker application.
+This module defines the pipeline configuration.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict

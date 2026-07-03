@@ -6,7 +6,7 @@ This module defines the healthz trigger for the healthz blueprint.
 from azure.durable_functions import Blueprint
 from azure.functions import HttpRequest, HttpResponse
 
-from app.healthz.schemas import HealthzResponseModel
+from app.healthz.schemas import HealthzResponse
 
 healthz_trigger_bp = Blueprint()
 
@@ -22,7 +22,7 @@ def healthz(req: HttpRequest) -> HttpResponse:
         HttpResponse: A JSON response containing the status of the application.
     """
     return HttpResponse(
-        HealthzResponseModel(status="up").model_dump_json(),
+        HealthzResponse(status="up").model_dump_json(),
         status_code=200,
         mimetype="application/json",
     )

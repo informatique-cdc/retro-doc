@@ -31,6 +31,7 @@ class ASTDocument(BaseFields, Document):
 class CFGDocument(ScopedFields, Document):
     class Settings:
         name = "cfg_graphs"
+        keep_nulls = False
         indexes = [
             IndexModel([("repo_id", 1), ("file_id", 1), ("scope", 1)], unique=True),
         ]
@@ -39,6 +40,7 @@ class CFGDocument(ScopedFields, Document):
 class DFGDocument(ScopedFields, Document):
     class Settings:
         name = "dfg_graphs"
+        keep_nulls = False
         indexes = [
             IndexModel([("repo_id", 1), ("file_id", 1), ("scope", 1)], unique=True),
         ]

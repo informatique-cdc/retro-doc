@@ -1,6 +1,6 @@
 """RAG configuration.
 
-This module defines the RAG configuration for the Retro-Documentation Backend Worker application.
+This module defines the RAG configuration.
 """
 
 from pydantic import SecretStr
@@ -25,11 +25,11 @@ class RAGSettings(BaseSettings):
     AZURE_AI_SEARCH_WRITE_CONCURRENCY: int = 5
 
     # Embedding model
-    EMBEDDING_ENDPOINT: str
-    EMBEDDING_API_KEY: SecretStr
-    EMBEDDING_NAME: str = "text-embedding-3-small"
-    EMBEDDING_PROVIDER: str = "azure_openai"
-    EMBEDDING_DIMENSIONS: int = 1536
+    EMBEDDING_MODEL_ENDPOINT: str
+    EMBEDDING_MODEL_API_KEY: SecretStr
+    EMBEDDING_MODEL_NAME: str = "text-embedding-3-small"
+    EMBEDDING_MODEL_PROVIDER: str = "azure_openai"
+    EMBEDDING_MODEL_DIMENSIONS: int = 1536
 
     # Chunking
     CHUNK_SIZE: int = 500

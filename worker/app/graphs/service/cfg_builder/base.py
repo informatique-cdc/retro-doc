@@ -29,4 +29,4 @@ class CFGBuilderService(ABC):
         Raises:
             Exception: If CFG building fails.
         """
-        pass
+        ...

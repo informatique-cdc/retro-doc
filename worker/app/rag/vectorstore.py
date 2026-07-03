@@ -51,7 +51,7 @@ def _get_index_fields() -> list[SearchField]:
             name="content_vector",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
             searchable=True,
-            vector_search_dimensions=rag_settings.EMBEDDING_DIMENSIONS,
+            vector_search_dimensions=rag_settings.EMBEDDING_MODEL_DIMENSIONS,
             vector_search_profile_name="myHnswProfile",
         ),
         SearchableField(
@@ -134,7 +134,7 @@ async def azure_ai_search_retry(
             last_exc = exc
             wait_s = _get_retry_after_s(exc, attempt)
             logger.warning(
-                f"Azure AI Search throttled ({exc.status_code}), "
+                f"RAG: Azure AI Search throttled ({exc.status_code}), "
                 f"attempt {attempt + 1}/{max_attempts}, "
                 f"retrying in {wait_s:.1f}s"
             )
@@ -153,10 +153,10 @@ def init_vectorstore() -> None:
     logger.info("RAG: Initializing VectorStore resources...")
 
     embeddings = init_embeddings(
-        model=rag_settings.EMBEDDING_NAME,
-        provider=rag_settings.EMBEDDING_PROVIDER,
-        api_key=rag_settings.EMBEDDING_API_KEY.get_secret_value(),
-        azure_endpoint=rag_settings.EMBEDDING_ENDPOINT,
+        model=rag_settings.EMBEDDING_MODEL_NAME,
+        provider=rag_settings.EMBEDDING_MODEL_PROVIDER,
+        api_key=rag_settings.EMBEDDING_MODEL_API_KEY.get_secret_value(),
+        azure_endpoint=rag_settings.EMBEDDING_MODEL_ENDPOINT,
     )
 
     _vectorstore = AzureSearch(

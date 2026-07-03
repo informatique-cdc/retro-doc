@@ -3,13 +3,16 @@
 This module defines the ODM related to Pipeline Runs.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from beanie import Document, PydanticObjectId
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from app.core.config import settings
+
+class PipelineMeta(BaseModel):
+    message: str
+    step: str
 
 
 class PipelineStatus(str, Enum):
@@ -22,11 +25,10 @@ class PipelineStatus(str, Enum):
 class PipelineRunDocument(Document):
     repo_id: PydanticObjectId
     status: PipelineStatus = PipelineStatus.PENDING
-    started_at: datetime = Field(
-        default_factory=lambda: datetime.now(settings.APP_TIMEZONE)
-    )
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
-    meta: str | None = None
+    meta: PipelineMeta | None = None
 
     class Settings:
         name = "pipeline_runs"
+        keep_nulls = False

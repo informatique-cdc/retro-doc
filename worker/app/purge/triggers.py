@@ -3,7 +3,7 @@
 This module defines the purge triggers for the purge blueprint.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from azure.durable_functions import Blueprint
 from azure.durable_functions.models import (
@@ -12,7 +12,6 @@ from azure.durable_functions.models import (
 from azure.functions import TimerRequest
 from loguru import logger
 
-from app.core.config import settings
 from app.purge.service import purge_history as purge_history_service
 
 purge_trigger_bp = Blueprint()
@@ -30,8 +29,8 @@ async def purge_history(
         client(DurableOrchestrationClient): The client used to interact with
             orchestration instances.
     """
-    cutoff = datetime.now(settings.APP_TIMEZONE) - timedelta(days=30)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
     result = await purge_history_service(cutoff, client)
     logger.info(
-        f"Purged {result.instances_deleted} completed orchestrator instances older than 30 days."
+        f"Purge: Cleaned {result.instances_deleted} completed orchestrator instances older than 30 days."
     )

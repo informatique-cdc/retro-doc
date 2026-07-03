@@ -1,6 +1,6 @@
 """Documentation configuration.
 
-This module defines the documentation configuration for the Retro-Documentation Backend Worker application.
+This module defines the documentation configuration.
 """
 
 from pydantic import SecretStr
@@ -16,11 +16,11 @@ class DocSettings(BaseSettings):
     )
 
     # Chat model
-    CHAT_BASE_URL: str
-    CHAT_API_KEY: SecretStr
-    CHAT_NAME: str = "Codestral-2501"
-    CHAT_PROVIDER: str = "mistralai"
-    CHAT_TEMPERATURE: float | None = 0.1
+    CHAT_MODEL_BASE_URL: str
+    CHAT_MODEL_API_KEY: SecretStr
+    CHAT_MODEL_NAME: str = "Codestral-2501"
+    CHAT_MODEL_PROVIDER: str = "mistralai"
+    CHAT_MODEL_TEMPERATURE: float | None = 0.1
 
     # Prompt
     PROMPT_MAX_SOURCE_CHARS: int = 10_000

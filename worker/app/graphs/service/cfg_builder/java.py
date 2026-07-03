@@ -4,6 +4,7 @@ This module builds Control Flow Graphs for Java methods by parsing
 source code with javalang and walking method bodies.
 """
 
+import hashlib
 from typing import Any
 
 import javalang
@@ -32,6 +33,7 @@ from javalang.tree import (
 )
 from loguru import logger
 
+from app.graphs.service.ast_parser import JavaASTParserService
 from app.graphs.service.cfg_builder.base import CFGBuilderService
 
 
@@ -55,40 +57,89 @@ class JavaCFGBuilderService(CFGBuilderService):
         """
         tree = javalang.parse.parse(source_code)
 
+        # Reuse the AST parser to obtain canonical, overload-safe method keys
+        # (method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>) without duplicating its
+        # type-resolution logic. Keys are mapped back to methods by position, since
+        # the AST parser iterates the same parsed tree in the same order.
+        key_map = self._build_key_map(source_code, file_path)
+
         results: list[dict[str, Any]] = []
 
         for _, node in tree.filter(ClassDeclaration):
             if node.methods:
-                for method in node.methods:
-                    cfg = self._build_method_cfg(method, node.name)
+                owner_keys = key_map.get(node.name, [])
+                for idx, method in enumerate(node.methods):
+                    scope = owner_keys[idx] if idx < len(owner_keys) else ""
+                    if not scope:
+                        logger.warning(
+                            f"Graphs(CFG Java): CFG skipped, no canonical key for "
+                            f"'{node.name}.{method.name}' in '{file_path}'"
+                        )
+                        continue
+                    cfg = self._build_method_cfg(method, scope, file_path)
                     results.append(cfg)
 
         for _, node in tree.filter(InterfaceDeclaration):
             if node.methods:
-                for method in node.methods:
+                owner_keys = key_map.get(node.name, [])
+                for idx, method in enumerate(node.methods):
                     if method.body:
-                        cfg = self._build_method_cfg(method, node.name)
+                        scope = owner_keys[idx] if idx < len(owner_keys) else ""
+                        if not scope:
+                            logger.warning(
+                                f"Graphs(CFG Java): CFG skipped, no canonical key for "
+                                f"'{node.name}.{method.name}' in '{file_path}'"
+                            )
+                            continue
+                        cfg = self._build_method_cfg(method, scope, file_path)
                         results.append(cfg)
 
         return results
+
+    def _build_key_map(self, source_code: str, file_path: str) -> dict[str, list[str]]:
+        """Build a map of owner name to its ordered list of canonical method keys.
+
+        Delegates to `JavaASTParserService.extract_method_keys` so the CFG `scope`
+        matches the AST's canonical `method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>`
+        key. Java's graph builders share the Java AST parser's canonical key as the
+        single identity authority. Method keys are listed in declaration order so
+        they can be mapped back to javalang method nodes by position (overload-safe).
+
+        Args:
+            source_code(str): The raw Java source code.
+            file_path(str): The file path used for AST metadata.
+
+        Returns:
+            dict[str, list[str]]: Mapping of class/interface name to the ordered
+                list of canonical method keys.
+        """
+        try:
+            return JavaASTParserService().extract_method_keys(source_code)
+        except Exception:
+            logger.exception(
+                f"Graphs(CFG Java): AST key extraction failed for '{file_path}'"
+            )
+            return {}
 
     # ------------------------------------------------------------------
     # CFG construction
     # ------------------------------------------------------------------
 
-    def _build_method_cfg(self, java_method: Any, class_name: str) -> dict[str, Any]:
+    def _build_method_cfg(
+        self, java_method: Any, scope: str, file_path: str
+    ) -> dict[str, Any]:
         """Build a CFG dict for a single method.
 
         Args:
             java_method(Any): The javalang MethodDeclaration node.
-            class_name(str): The name of the enclosing class or interface.
+            scope(str): The canonical method key used as the document scope.
+            file_path(str): The file path used for node source_ref/stmt_key.
 
         Returns:
             dict[str, Any]: A dict containing the CFG representation with
                 nodes, edges, and metrics.
         """
         method_name = java_method.name
-        scope = f"{class_name}.{method_name}"
 
         graph = nx.DiGraph()
         counter = [0]  # mutable counter
@@ -98,7 +149,7 @@ class JavaCFGBuilderService(CFGBuilderService):
 
         if java_method.body:
             last_nodes = self._process_block(
-                graph, counter, java_method.body, entry, exit_node
+                graph, counter, java_method.body, entry, exit_node, file_path
             )
             for nid in last_nodes:
                 if nid != exit_node:
@@ -132,23 +183,125 @@ class JavaCFGBuilderService(CFGBuilderService):
         }
 
     def _add_node(
-        self, graph: nx.DiGraph, counter: list[int], node_type: str, label: str = ""
+        self,
+        graph: nx.DiGraph,
+        counter: list[int],
+        node_type: str,
+        label: str = "",
+        source_ref: dict[str, Any] | None = None,
+        stmt_key: str | None = None,
+        normalized_text: str | None = None,
     ) -> int:
         """Add a node to the graph with a unique ID and return the ID.
 
         Args:
             graph(nx.DiGraph): The graph being built.
             counter(list[int]): Mutable node ID counter.
-            node_type(str): The type of the node (e.g., "statement", "condition").
+            node_type(str): The type of the node (e.g., "statement", "branch").
             label(str): A human-readable label for the node.
+            source_ref(dict[str, Any] | None): Source reference metadata.
+            stmt_key(str | None): Canonical statement key (matches the AST).
+            normalized_text(str | None): Normalized text for textual joins.
 
         Returns:
             int: The unique ID of the added node.
         """
         nid = counter[0]
         counter[0] += 1
-        graph.add_node(nid, id=nid, type=node_type, label=label)
+        metadata: dict[str, Any] = {}
+        if source_ref is not None:
+            metadata["source_ref"] = source_ref
+        if stmt_key is not None:
+            metadata["stmt_key"] = stmt_key
+        if normalized_text is not None:
+            metadata["normalized_text"] = normalized_text
+        graph.add_node(nid, id=nid, type=node_type, label=label, metadata=metadata)
         return nid
+
+    def _get_node_line(self, node: Any) -> int | None:
+        """Safely extract the line number from a javalang node.
+
+        Args:
+            node(Any): A javalang AST node.
+
+        Returns:
+            int | None: The line number, or None if unavailable.
+        """
+        if hasattr(node, "position") and node.position:
+            return int(node.position.line)
+        return None
+
+    def _compute_stmt_key(self, file_path: str, line: int, kind: str, text: str) -> str:
+        """Compute a stable statement key (matches the AST parser).
+
+        Args:
+            file_path(str): The file path.
+            line(int): The line number.
+            kind(str): The statement kind (lowercase).
+            text(str): The statement text.
+
+        Returns:
+            str: A stable key of the form `stmt:<path>:<line>:<kind>:<hash>`.
+        """
+        text_hash = hashlib.sha1(
+            text.encode("utf-8", errors="replace"), usedforsecurity=False
+        ).hexdigest()[:8]
+        return f"stmt:{file_path}:{line}:{kind}:{text_hash}"
+
+    def _make_source_ref(self, file_path: str, line: int) -> dict[str, Any]:
+        """Build a source_ref dictionary for a single-line node.
+
+        Args:
+            file_path(str): The file path.
+            line(int): The source line number.
+
+        Returns:
+            dict[str, Any]: A source reference dictionary.
+        """
+        return {"file": file_path, "line_start": line, "line_end": line}
+
+    def _add_statement_node(
+        self,
+        graph: nx.DiGraph,
+        counter: list[int],
+        node: Any,
+        node_type: str,
+        label: str,
+        kind: str,
+        file_path: str,
+    ) -> int:
+        """Add a statement/branch node carrying source_ref and stmt_key metadata.
+
+        Args:
+            graph(nx.DiGraph): The graph being built.
+            counter(list[int]): Mutable node ID counter.
+            node(Any): The javalang node used for the source position.
+            node_type(str): The CFG node type (e.g., "statement", "branch").
+            label(str): A human-readable label (also used as normalized_text).
+            kind(str): The statement kind for the stmt_key (e.g., "if", "stmt").
+            file_path(str): The file path for source_ref/stmt_key.
+
+        Returns:
+            int: The unique ID of the added node.
+        """
+        line = self._get_node_line(node)
+        source_ref = (
+            self._make_source_ref(file_path, line) if line is not None else None
+        )
+        stmt_key = (
+            self._compute_stmt_key(file_path, line, kind, label)
+            if line is not None
+            else None
+        )
+        return self._add_node(
+            graph,
+            counter,
+            node_type,
+            label,
+            source_ref=source_ref,
+            stmt_key=stmt_key,
+            normalized_text=label,
+        )
 
     def _add_edge(self, graph: nx.DiGraph, src: int, dst: int, label: str = "") -> None:
         """Add a directed edge to the graph with an optional label.
@@ -172,6 +325,7 @@ class JavaCFGBuilderService(CFGBuilderService):
         statements: list[Any],
         entry_id: int,
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
         """Process a block of statements, connecting them in sequence and
         returning the last nodes in the block.
@@ -182,6 +336,7 @@ class JavaCFGBuilderService(CFGBuilderService):
             statements(list[Any]): List of javalang statements in the block.
             entry_id(int): The node ID to connect the block's entry to.
             exit_id(int): The node ID to connect the block's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes in the block.
@@ -191,7 +346,9 @@ class JavaCFGBuilderService(CFGBuilderService):
 
         current = [entry_id]
         for stmt in statements:
-            current = self._process_statement(graph, counter, stmt, current, exit_id)
+            current = self._process_statement(
+                graph, counter, stmt, current, exit_id, file_path
+            )
         return current
 
     def _process_statement(
@@ -201,6 +358,7 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
         """Process a single statement, adding nodes and edges to the graph as
         needed, and returning the last nodes after processing.
@@ -212,23 +370,36 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
                 the statement.
         """
         if isinstance(stmt, IfStatement):
-            return self._process_if(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_if(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, WhileStatement):
-            return self._process_while(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_while(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, ForStatement):
-            return self._process_for(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_for(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, TryStatement):
-            return self._process_try(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_try(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, SwitchStatement):
-            return self._process_switch(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_switch(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, ReturnStatement):
-            return self._process_return(graph, counter, stmt, entry_nodes, exit_id)
+            return self._process_return(
+                graph, counter, stmt, entry_nodes, exit_id, file_path
+            )
         if isinstance(stmt, BlockStatement):
             return self._process_block(
                 graph,
@@ -236,8 +407,9 @@ class JavaCFGBuilderService(CFGBuilderService):
                 stmt.statements,
                 entry_nodes[0] if entry_nodes else exit_id,
                 exit_id,
+                file_path,
             )
-        return self._process_simple(graph, counter, stmt, entry_nodes)
+        return self._process_simple(graph, counter, stmt, entry_nodes, file_path)
 
     def _process_if(
         self,
@@ -246,8 +418,9 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
-        """Process an if statement, creating a condition node and connecting then and
+        """Process an if statement, creating a branch node and connecting then and
         else branches appropriately.
 
         Args:
@@ -257,26 +430,33 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
                 the if statement.
         """
-        cond = self._add_node(
-            graph, counter, "condition", f"if ({self._label(stmt.condition)})"
+        cond = self._add_statement_node(
+            graph,
+            counter,
+            stmt,
+            "branch",
+            f"if ({self._label(stmt.condition)})",
+            "if",
+            file_path,
         )
         for eid in entry_nodes:
             self._add_edge(graph, eid, cond)
 
         then_last = self._process_statement(
-            graph, counter, stmt.then_statement, [cond], exit_id
+            graph, counter, stmt.then_statement, [cond], exit_id, file_path
         )
         if then_last:
             self._add_edge(graph, cond, then_last[0], "true")
 
         if stmt.else_statement:
             else_last = self._process_statement(
-                graph, counter, stmt.else_statement, [cond], exit_id
+                graph, counter, stmt.else_statement, [cond], exit_id, file_path
             )
             if else_last:
                 self._add_edge(graph, cond, else_last[0], "false")
@@ -291,8 +471,9 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
-        """Process a while statement, creating a condition node and connecting the body
+        """Process a while statement, creating a branch node and connecting the body
         back to the condition.
 
         Args:
@@ -302,22 +483,31 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
                 the while statement.
         """
-        cond = self._add_node(
-            graph, counter, "condition", f"while ({self._label(stmt.condition)})"
+        cond = self._add_statement_node(
+            graph,
+            counter,
+            stmt,
+            "branch",
+            f"while ({self._label(stmt.condition)})",
+            "while",
+            file_path,
         )
         for eid in entry_nodes:
             self._add_edge(graph, eid, cond)
 
-        body_last = self._process_statement(graph, counter, stmt.body, [cond], exit_id)
+        body_last = self._process_statement(
+            graph, counter, stmt.body, [cond], exit_id, file_path
+        )
         if body_last:
             self._add_edge(graph, cond, body_last[0], "true")
         for nid in body_last:
-            self._add_edge(graph, nid, cond)
+            self._add_edge(graph, nid, cond, "loop")
 
         return [cond]
 
@@ -328,8 +518,9 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
-        """Process a for statement, creating a condition node and connecting
+        """Process a for statement, creating a branch node and connecting
         the body back to the condition.
 
         Args:
@@ -339,6 +530,7 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
@@ -349,15 +541,19 @@ class JavaCFGBuilderService(CFGBuilderService):
             if hasattr(stmt, "control") and stmt.control
             else "..."
         )
-        cond = self._add_node(graph, counter, "condition", f"for ({ctrl_label})")
+        cond = self._add_statement_node(
+            graph, counter, stmt, "branch", f"for ({ctrl_label})", "for", file_path
+        )
         for eid in entry_nodes:
             self._add_edge(graph, eid, cond)
 
-        body_last = self._process_statement(graph, counter, stmt.body, [cond], exit_id)
+        body_last = self._process_statement(
+            graph, counter, stmt.body, [cond], exit_id, file_path
+        )
         if body_last:
             self._add_edge(graph, cond, body_last[0], "true")
         for nid in body_last:
-            self._add_edge(graph, nid, cond)
+            self._add_edge(graph, nid, cond, "loop")
 
         return [cond]
 
@@ -368,6 +564,7 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
         """Process a try statement, connecting the try block, catch blocks,
         and finally block.
@@ -379,6 +576,7 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
@@ -390,28 +588,39 @@ class JavaCFGBuilderService(CFGBuilderService):
             stmt.block,
             entry_nodes[0] if entry_nodes else exit_id,
             exit_id,
+            file_path,
         )
         last_nodes = list(try_last)
 
         if stmt.catches:
             for catch in stmt.catches:
                 catch_type = "Exception"
-                if hasattr(catch.parameter, "type") and hasattr(
+                if hasattr(catch.parameter, "types") and catch.parameter.types:
+                    catch_type = " | ".join(str(t) for t in catch.parameter.types)
+                elif hasattr(catch.parameter, "type") and hasattr(
                     catch.parameter.type, "name"
                 ):
                     catch_type = catch.parameter.type.name
-                catch_node = self._add_node(
-                    graph, counter, "statement", f"catch ({catch_type})"
+                catch_node = self._add_statement_node(
+                    graph,
+                    counter,
+                    catch,
+                    "statement",
+                    f"catch ({catch_type})",
+                    "catch",
+                    file_path,
                 )
                 for eid in entry_nodes:
                     self._add_edge(graph, eid, catch_node, "exception")
                 catch_last = self._process_block(
-                    graph, counter, catch.block, catch_node, exit_id
+                    graph, counter, catch.block, catch_node, exit_id, file_path
                 )
                 last_nodes.extend(catch_last)
 
         if stmt.finally_block:
-            finally_node = self._add_node(graph, counter, "statement", "finally")
+            finally_node = self._add_statement_node(
+                graph, counter, stmt, "statement", "finally", "finally", file_path
+            )
             for nid in last_nodes:
                 self._add_edge(graph, nid, finally_node)
             return self._process_block(
@@ -420,6 +629,7 @@ class JavaCFGBuilderService(CFGBuilderService):
                 stmt.finally_block,
                 finally_node,
                 exit_id,
+                file_path,
             )
 
         return last_nodes
@@ -431,8 +641,9 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
-        """Process a switch statement, creating a condition node and connecting case
+        """Process a switch statement, creating a branch node and connecting case
         blocks appropriately.
 
         Args:
@@ -442,22 +653,37 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
                 the switch statement.
         """
-        switch = self._add_node(
-            graph, counter, "condition", f"switch ({self._label(stmt.expression)})"
+        switch = self._add_statement_node(
+            graph,
+            counter,
+            stmt,
+            "branch",
+            f"switch ({self._label(stmt.expression)})",
+            "switch",
+            file_path,
         )
         for eid in entry_nodes:
             self._add_edge(graph, eid, switch)
 
         last_nodes: list[int] = []
         for case in stmt.cases:
-            case_label = f"case {self._label(case.case[0])}" if case.case else "default"
-            case_node = self._add_node(graph, counter, "statement", case_label)
-            self._add_edge(graph, switch, case_node)
+            if case.case:
+                value = self._label(case.case[0])
+                case_label = f"case {value}"
+                edge_label = f"case:{value}"
+            else:
+                case_label = "default"
+                edge_label = "default"
+            case_node = self._add_statement_node(
+                graph, counter, case, "statement", case_label, "case", file_path
+            )
+            self._add_edge(graph, switch, case_node, edge_label)
             if case.statements:
                 case_last = self._process_block(
                     graph,
@@ -465,6 +691,7 @@ class JavaCFGBuilderService(CFGBuilderService):
                     case.statements,
                     case_node,
                     exit_id,
+                    file_path,
                 )
                 last_nodes.extend(case_last)
             else:
@@ -479,6 +706,7 @@ class JavaCFGBuilderService(CFGBuilderService):
         stmt: Any,
         entry_nodes: list[int],
         exit_id: int,
+        file_path: str,
     ) -> list[int]:
         """Process a return statement, creating a return node and connecting it to exit.
 
@@ -489,6 +717,7 @@ class JavaCFGBuilderService(CFGBuilderService):
             entry_nodes(list[int]): List of node IDs to connect the statement's
                 entry to.
             exit_id(int): The node ID to connect the statement's exit to.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
             list[int]: List of node IDs that are the last nodes after processing
@@ -497,7 +726,9 @@ class JavaCFGBuilderService(CFGBuilderService):
         label = "return"
         if stmt.expression:
             label = f"return {self._label(stmt.expression)}"
-        ret = self._add_node(graph, counter, "statement", label)
+        ret = self._add_statement_node(
+            graph, counter, stmt, "statement", label, "return", file_path
+        )
         for eid in entry_nodes:
             self._add_edge(graph, eid, ret)
         self._add_edge(graph, ret, exit_id)
@@ -509,8 +740,11 @@ class JavaCFGBuilderService(CFGBuilderService):
         counter: list[int],
         stmt: Any,
         entry_nodes: list[int],
+        file_path: str,
     ) -> list[int]:
-        node = self._add_node(graph, counter, "statement", self._label(stmt))
+        node = self._add_statement_node(
+            graph, counter, stmt, "statement", self._label(stmt), "stmt", file_path
+        )
         for eid in entry_nodes:
             self._add_edge(graph, eid, node)
         return [node]
@@ -627,8 +861,10 @@ class JavaCFGBuilderService(CFGBuilderService):
                 return result[: max_length - 3] + "..."
             return result
 
-        except Exception as e:
-            logger.debug(f"Error generating label for {type(stmt)}: {e}")
+        except Exception:
+            logger.exception(
+                f"Graphs(CFG Java): Error generating label for {type(stmt)}"
+            )
             return type(stmt).__name__
 
     def _label_args(self, arguments: list[Any] | None) -> str:

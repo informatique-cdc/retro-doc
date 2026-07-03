@@ -25,4 +25,4 @@ class SymbolTableBuilderService(ABC):
             dict[str, Any] | None: Dict containing the symbol table with
                 symbols and scopes. None if building fails.
         """
-        pass
+        ...

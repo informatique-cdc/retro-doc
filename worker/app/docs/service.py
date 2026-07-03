@@ -11,29 +11,55 @@ from langchain.chat_models import init_chat_model
 from pymongo.errors import DuplicateKeyError
 
 from app.core.database import mongodb_retry
-from app.core.language_enum import Language
+from app.core.language import Language
 from app.docs.config import docs_settings
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import (
+    AnalysisStats,
+    FileDocumentationDocument,
+    RepoMetaDocument,
+)
 from app.docs.prompts import FILE_DOCUMENTATION_PROMPT, get_language_instructions
 
 chat_model = init_chat_model(
-    model=docs_settings.CHAT_NAME,
-    model_provider=docs_settings.CHAT_PROVIDER,
-    base_url=docs_settings.CHAT_BASE_URL,
-    api_key=docs_settings.CHAT_API_KEY.get_secret_value(),
-    temperature=docs_settings.CHAT_TEMPERATURE,
+    model=docs_settings.CHAT_MODEL_NAME,
+    model_provider=docs_settings.CHAT_MODEL_PROVIDER,
+    base_url=docs_settings.CHAT_MODEL_BASE_URL,
+    api_key=docs_settings.CHAT_MODEL_API_KEY.get_secret_value(),
+    temperature=docs_settings.CHAT_MODEL_TEMPERATURE,
 )
 
 
-def create_meta_repo(
-    stats: dict[str, int],
+def _truncate_json(value: Any, max_chars: int) -> str:
+    """Serialize `value` to indented JSON, char-capped with a truncation marker.
+
+    Returns "N/A" when `value` is not JSON-serializable. When the serialized
+    form exceeds `max_chars`, it is cut at the budget and an explicit marker is
+    appended so the model knows the graph is incomplete (no silent truncation).
+
+    Args:
+        value(Any): The value to serialize (AST/CFG/DFG data).
+        max_chars(int): The maximum number of characters to keep.
+
+    Returns:
+        str: The serialized JSON, possibly truncated with a marker, or "N/A".
+    """
+    try:
+        text = json.dumps(value, indent=2)
+    except (TypeError, ValueError):
+        return "N/A"
+    if len(text) <= max_chars:
+        return text
+    omitted = len(text) - max_chars
+    return f"{text[:max_chars]}\n... [TRUNCATED — {omitted} chars omitted]"
+
+
+def create_repo_meta_summary(
+    stats: AnalysisStats,
 ) -> str:
     """Create a markdown summary of analysis stats.
 
     Args:
-        stats(dict[str, int]): Dict with keys `total_files`, `ast_success`, `ast_failed`,
-            `cfg_success`, `cfg_failed`, `cfg_build_failed`, `dfg_success`, `dfg_failed`,
-            `dfg_build_failed`, `doc_success`, `doc_failed`.
+        stats(AnalysisStats): The structured analysis statistics.
 
     Returns:
         str: The markdown content summarizing the repository analysis results.
@@ -43,11 +69,11 @@ def create_meta_repo(
         "\n"
         "| Métrique | Succès | Échec |\n"
         "| ------ | ------: | -----: |\n"
-        f"| Fichier  | {stats['total_files']} | — |\n"
-        f"| AST    | {stats['ast_success']} | {stats['ast_failed']} |\n"
-        f"| CFG    | {stats['cfg_success']} | {stats['cfg_failed']} ({stats['cfg_build_failed']}) |\n"
-        f"| DFG    | {stats['dfg_success']} | {stats['dfg_failed']} ({stats['dfg_build_failed']}) |\n"
-        f"| Documentation    | {stats['doc_success']} | {stats['doc_failed']} |\n"
+        f"| Fichier  | {stats.files_detected} | — |\n"
+        f"| AST    | {stats.ast_success} | {stats.ast_failed} |\n"
+        f"| CFG    | {stats.cfg_success} | {stats.cfg_failed} ({stats.cfg_build_failed}) |\n"
+        f"| DFG    | {stats.dfg_success} | {stats.dfg_failed} ({stats.dfg_build_failed}) |\n"
+        f"| Documentation    | {stats.doc_success} | {stats.doc_failed} |\n"
     )
 
     return content
@@ -82,20 +108,10 @@ async def generate_documentation_file(
         str: The generated documentation
             content for the file.
     """
-    try:
-        ast_json = json.dumps(ast, indent=2)[: docs_settings.PROMPT_MAX_GRAPH_CHARS]
-    except (TypeError, ValueError):
-        ast_json = "N/A"
-
-    try:
-        cfg_json = json.dumps(cfgs, indent=2)[: docs_settings.PROMPT_MAX_GRAPH_CHARS]
-    except (TypeError, ValueError):
-        cfg_json = "N/A"
-
-    try:
-        dfg_json = json.dumps(dfgs, indent=2)[: docs_settings.PROMPT_MAX_GRAPH_CHARS]
-    except (TypeError, ValueError):
-        dfg_json = "N/A"
+    max_graph_chars = docs_settings.PROMPT_MAX_GRAPH_CHARS
+    ast_json = _truncate_json(ast, max_graph_chars)
+    cfg_json = _truncate_json(cfgs, max_graph_chars)
+    dfg_json = _truncate_json(dfgs, max_graph_chars)
 
     messages = FILE_DOCUMENTATION_PROMPT.invoke(
         {
@@ -114,33 +130,39 @@ async def generate_documentation_file(
     return response.text
 
 
-async def persist_meta_repo(repo_id: PydanticObjectId, content: str) -> None:
-    """Persist a meta repo document in the database.
+async def persist_repo_meta(
+    repo_id: PydanticObjectId,
+    content: str,
+    stats: AnalysisStats,
+) -> None:
+    """Persist a repo meta document in the database.
 
     Args:
         repo_id(PydanticObjectId): The repository identifier.
         content(str): The markdown content summarizing the repository analysis results.
+        stats(AnalysisStats): The structured analysis statistics to store.
     """
-    meta_doc = MetaRepoDocument(
+    repo_meta_doc = RepoMetaDocument(
         repo_id=repo_id,
         content=content,
+        stats=stats,
     )
     try:
-        await mongodb_retry(meta_doc.insert)
+        await mongodb_retry(repo_meta_doc.insert)
     except DuplicateKeyError:
         pass
 
 
 async def persist_documentation(
     repo_id: PydanticObjectId,
-    file_id: PydanticObjectId | None,
+    file_id: PydanticObjectId,
     content: str,
 ) -> None:
     """Persist a documentation document in the database.
 
     Args:
         repo_id(PydanticObjectId): The repository identifier.
-        file_id(PydanticObjectId | None): The file identifier.
+        file_id(PydanticObjectId): The file identifier.
         content(str): The generated documentation content for the file.
     """
     doc = FileDocumentationDocument(

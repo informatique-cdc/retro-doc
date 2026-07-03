@@ -4,6 +4,8 @@ This module builds Data Flow Graphs for Java methods by parsing
 source code with javalang and tracking variable definitions and uses.
 """
 
+import hashlib
+from dataclasses import dataclass, field
 from typing import Any
 
 import javalang
@@ -30,7 +32,44 @@ from javalang.tree import (
 )
 from loguru import logger
 
+from app.graphs.service.ast_parser import JavaASTParserService
 from app.graphs.service.dfg_builder.base import DFGBuilderService
+
+
+@dataclass
+class _DFGState:
+    """Per-method DFG build state.
+
+    Bundles the mutable graph state with the canonical metadata for one method.
+    Created per method (never stored on the service, which is a shared singleton)
+    and threaded through the analysis helpers.
+
+    Attributes:
+        graph(nx.DiGraph): The data flow graph being built.
+        counter(list[int]): A single-item list used to generate unique node IDs.
+        defs(dict[str, list[int]]): var_key -> definition node IDs.
+        uses(dict[str, list[int]]): var_key -> use node IDs.
+        last_def(dict[str, int]): var_key -> most recent definition node ID.
+        last_def_by_name(dict[str, int]): variable name -> last def node ID (fallback).
+        variables(dict[str, list[int]]): variable name -> all node IDs (for metrics).
+        file_path(str): The file path for source_ref/stmt_key.
+        method_key(str): The canonical method key (DFG scope, var_key prefix).
+        owner_fqn(str): The FQN of the owning type.
+        class_fields(dict[str, dict[str, Any]]): Field name -> AST field context
+            (canonical key, owner_fqn, type_simple, type_fqn).
+    """
+
+    graph: nx.DiGraph
+    counter: list[int]
+    file_path: str
+    method_key: str
+    owner_fqn: str
+    class_fields: dict[str, dict[str, Any]]
+    defs: dict[str, list[int]] = field(default_factory=dict)
+    uses: dict[str, list[int]] = field(default_factory=dict)
+    last_def: dict[str, int] = field(default_factory=dict)
+    last_def_by_name: dict[str, int] = field(default_factory=dict)
+    variables: dict[str, list[int]] = field(default_factory=dict)
 
 
 class JavaDFGBuilderService(DFGBuilderService):
@@ -51,125 +90,368 @@ class JavaDFGBuilderService(DFGBuilderService):
         """
         tree = javalang.parse.parse(source_code)
 
+        # Reuse the AST parser to obtain canonical, overload-safe method keys, owner
+        # FQNs and field keys/types without duplicating its type-resolution logic.
+        # Context is mapped back to methods by position, since the AST parser iterates
+        # the same parsed tree in the same order.
+        contexts = self._build_context_map(source_code, file_path)
+
         results: list[dict[str, Any]] = []
 
         for _, node in tree.filter(ClassDeclaration):
-            class_fields = self._extract_class_fields(node)
-            if node.methods:
-                for method in node.methods:
-                    dfg = self._build_method_dfg(method, node.name, class_fields)
-                    results.append(dfg)
+            if not node.methods:
+                continue
+            ctx = contexts.get(node.name, {})
+            owner_fqn = ctx.get("owner_fqn", node.name)
+            method_ctxs = ctx.get("methods", [])
+            class_fields = ctx.get("fields", {})
+            for idx, method in enumerate(node.methods):
+                method_ctx = method_ctxs[idx] if idx < len(method_ctxs) else None
+                scope = method_ctx["key"] if method_ctx else ""
+                if not method_ctx or not scope:
+                    logger.warning(
+                        f"Graphs(DFG Java): DFG skipped, no canonical key for "
+                        f"'{node.name}.{method.name}' in '{file_path}'"
+                    )
+                    continue
+                dfg = self._build_method_dfg(
+                    method,
+                    scope,
+                    owner_fqn,
+                    method_ctx["parameters"],
+                    class_fields,
+                    file_path,
+                )
+                results.append(dfg)
 
         for _, node in tree.filter(InterfaceDeclaration):
-            if node.methods:
-                for method in node.methods:
-                    if method.body:
-                        dfg = self._build_method_dfg(method, node.name, {})
-                        results.append(dfg)
+            if not node.methods:
+                continue
+            ctx = contexts.get(node.name, {})
+            owner_fqn = ctx.get("owner_fqn", node.name)
+            method_ctxs = ctx.get("methods", [])
+            for idx, method in enumerate(node.methods):
+                if not method.body:
+                    continue
+                method_ctx = method_ctxs[idx] if idx < len(method_ctxs) else None
+                scope = method_ctx["key"] if method_ctx else ""
+                if not method_ctx or not scope:
+                    logger.warning(
+                        f"Graphs(DFG Java): DFG skipped, no canonical key for "
+                        f"'{node.name}.{method.name}' in '{file_path}'"
+                    )
+                    continue
+                dfg = self._build_method_dfg(
+                    method,
+                    scope,
+                    owner_fqn,
+                    method_ctx["parameters"],
+                    {},
+                    file_path,
+                )
+                results.append(dfg)
 
         return results
 
-    # ------------------------------------------------------------------
-    # Tree helpers
-    # ------------------------------------------------------------------
-
-    def _extract_class_fields(
-        self, class_node: ClassDeclaration
+    def _build_context_map(
+        self, source_code: str, file_path: str
     ) -> dict[str, dict[str, Any]]:
-        """Extract class fields into a dict for easy lookup.
+        """Build a map of owner name to its canonical method/field context.
+
+        Delegates to `JavaASTParserService.extract_method_contexts` so the DFG
+        `scope` and `var_key`s share the AST's canonical
+        `method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>` and
+        `field:<ownerFQN>#<name>:<typeFQN>` keys. Java's graph builders share the
+        Java AST parser's canonical keys as the single identity authority.
 
         Args:
-            class_node (ClassDeclaration): The class declaration
-                node from which to extract fields.
+            source_code(str): The raw Java source code.
+            file_path(str): The file path used for AST metadata.
 
         Returns:
-            dict[str, dict[str, Any]]: A dictionary mapping field names to
-                their metadata (currently just the name).
+            dict[str, dict[str, Any]]: Mapping of class/interface name to its
+                context (owner_fqn, ordered methods, fields). Empty on failure.
         """
-        fields: dict[str, dict[str, Any]] = {}
-        if class_node.fields:
-            for field_decl in class_node.fields:
-                for declarator in field_decl.declarators:
-                    fields[declarator.name] = {"name": declarator.name}
-        return fields
+        try:
+            return JavaASTParserService().extract_method_contexts(source_code)
+        except Exception:
+            logger.exception(
+                f"Graphs(DFG Java): AST context extraction failed for '{file_path}'"
+            )
+            return {}
 
     # ------------------------------------------------------------------
-    # DFG construction helpers
+    # Node / edge construction
     # ------------------------------------------------------------------
 
     def _add_node(
         self,
-        graph: nx.DiGraph,
-        counter: list[int],
-        defs: dict[str, list[int]],
-        uses: dict[str, list[int]],
-        last_def: dict[str, int],
+        state: _DFGState,
         variable: str,
-        node_type: str,
+        var_kind: str,
         operation: str,
+        *,
+        line: int | None = None,
+        var_key: str = "",
+        source_ref: dict[str, Any] | None = None,
+        stmt_key: str | None = None,
+        owner_fqn: str | None = None,
+        type_simple: str | None = None,
+        type_fqn: str | None = None,
     ) -> int:
         """Add a node to the graph and update defs/uses tracking.
 
         Args:
-            graph (nx.DiGraph): The graph to which the node will be added.
-            counter (list[int]): A single-item list used to generate unique node IDs.
-            defs (dict[str, list[int]]): A mapping of variable names to lists of definition node IDs.
-            uses (dict[str, list[int]]): A mapping of variable names to lists of use node IDs.
-            last_def (dict[str, int]): A mapping of variable names to the most recent definition node ID.
-            variable (str): The name of the variable associated with this node.
-            node_type (str): The type of the variable (e.g., "local", "field", "param").
-            operation (str): The operation type ("def", "use", "write", "read", "init").
+            state(_DFGState): The per-method build state.
+            variable(str): The variable name associated with this node.
+            var_kind(str): The variable kind ("param", "field", "local").
+            operation(str): The operation ("def", "use", "write", "read", "init").
+            line(int | None): The source line, if available.
+            var_key(str): The canonical var_key.
+            source_ref(dict[str, Any] | None): Source reference metadata.
+            stmt_key(str | None): Statement key, if available.
+            owner_fqn(str | None): The owning type FQN (fields only).
+            type_simple(str | None): The simple type name, if known.
+            type_fqn(str | None): The resolved type FQN, if known.
 
         Returns:
             int: The ID of the newly added node.
         """
-        nid = counter[0]
-        counter[0] += 1
-        graph.add_node(
-            nid,
-            id=nid,
-            variable=variable,
-            type=node_type,
-            operation=operation,
-        )
+        nid = state.counter[0]
+        state.counter[0] += 1
+        attrs: dict[str, Any] = {
+            "id": nid,
+            "variable": variable,
+            "type": var_kind,
+            "operation": operation,
+            "var_key": var_key,
+            "var_kind": var_kind,
+        }
+        if source_ref is not None:
+            attrs["source_ref"] = source_ref
+        if stmt_key is not None:
+            attrs["stmt_key"] = stmt_key
+        if line is not None:
+            attrs["line"] = line
+        if owner_fqn is not None:
+            attrs["owner_fqn"] = owner_fqn
+        if type_simple is not None:
+            attrs["type_simple"] = type_simple
+        if type_fqn is not None:
+            attrs["type_fqn"] = type_fqn
+        state.graph.add_node(nid, **attrs)
+
+        state.variables.setdefault(variable, []).append(nid)
+
+        effective_key = var_key or variable
         if operation in ("def", "write", "init"):
-            defs.setdefault(variable, []).append(nid)
-            last_def[variable] = nid
+            state.defs.setdefault(effective_key, []).append(nid)
+            state.last_def[effective_key] = nid
+            state.last_def_by_name[variable] = nid
         elif operation in ("use", "read"):
-            uses.setdefault(variable, []).append(nid)
+            state.uses.setdefault(effective_key, []).append(nid)
         return nid
 
-    def _add_edge(
-        self, graph: nx.DiGraph, src: int, dst: int, edge_type: str = "flow"
-    ) -> None:
-        """Add an edge to the graph if it doesn't already exist.
+    def _add_var_node(
+        self,
+        state: _DFGState,
+        var_name: str,
+        operation: str,
+        stmt: Any = None,
+        stmt_text: str = "",
+    ) -> int:
+        """Add a variable node with full canonical metadata.
 
         Args:
-            graph (nx.DiGraph): The graph to which the edge will be added.
-            src (int): The source node ID.
-            dst (int): The destination node ID.
-            edge_type (str): The type of the edge (default is "flow").
+            state(_DFGState): The per-method build state.
+            var_name(str): The variable name.
+            operation(str): The operation ("use", "write", ...).
+            stmt(Any): The javalang node for the source position, if any.
+            stmt_text(str): Optional text used for the stmt_key.
+
+        Returns:
+            int: The ID of the newly added node.
         """
-        if not graph.has_edge(src, dst):
-            graph.add_edge(src, dst, type=edge_type)
+        var_kind = self._var_kind(var_name, state.class_fields)
+        var_key = self._make_var_key(state, var_name, var_kind)
+        line = self._get_node_line(stmt) if stmt is not None else None
+        source_ref = (
+            self._make_source_ref(state.file_path, line) if line is not None else None
+        )
+        stmt_key = self._make_stmt_key(
+            state.file_path, operation, stmt_text or var_name, line
+        )
+
+        owner_fqn: str | None = None
+        type_simple: str | None = None
+        type_fqn: str | None = None
+        if var_kind == "field" and var_name in state.class_fields:
+            field_ctx = state.class_fields[var_name]
+            owner_fqn = field_ctx.get("owner_fqn")
+            type_simple = field_ctx.get("type_simple")
+            type_fqn = field_ctx.get("type_fqn")
+
+        return self._add_node(
+            state,
+            var_name,
+            var_kind,
+            operation,
+            line=line,
+            var_key=var_key,
+            source_ref=source_ref,
+            stmt_key=stmt_key,
+            owner_fqn=owner_fqn,
+            type_simple=type_simple,
+            type_fqn=type_fqn,
+        )
+
+    def _add_edge(
+        self,
+        state: _DFGState,
+        src: int,
+        dst: int,
+        edge_type: str = "flow",
+        var_key: str = "",
+        confidence: float = 1.0,
+    ) -> None:
+        """Add an edge with enriched metadata if it doesn't already exist.
+
+        Args:
+            state(_DFGState): The per-method build state.
+            src(int): The source node ID.
+            dst(int): The destination node ID.
+            edge_type(str): The edge type ("flow", "def-use", "init").
+            var_key(str): The canonical var_key the edge carries.
+            confidence(float): The edge confidence (default 1.0).
+        """
+        if not state.graph.has_edge(src, dst):
+            state.graph.add_edge(
+                src, dst, type=edge_type, var_key=var_key, confidence=confidence
+            )
 
     def _connect_def_to_use(
-        self,
-        graph: nx.DiGraph,
-        last_def: dict[str, int],
-        variable: str,
-        use_nid: int,
+        self, state: _DFGState, variable: str, use_nid: int
     ) -> None:
         """Connect the most recent definition of a variable to a new use node.
 
+        Resolves by canonical var_key first, then falls back to the bare variable
+        name (so parameter defs, keyed by `param:...`, still connect to body uses
+        keyed by `local:...`).
+
         Args:
-            graph (nx.DiGraph): The graph to which the edge will be added.
-            last_def (dict[str, int]): A mapping of variable names to the most recent definition node ID.
-            variable (str): The name of the variable being used.
-            use_nid (int): The node ID of the use node that should be connected to the definition.
+            state(_DFGState): The per-method build state.
+            variable(str): The variable being used.
+            use_nid(int): The use node ID to connect to its definition.
         """
-        if variable in last_def:
-            self._add_edge(graph, last_def[variable], use_nid, "def-use")
+        var_kind = self._var_kind(variable, state.class_fields)
+        var_key = self._make_var_key(state, variable, var_kind)
+        effective_key = var_key or variable
+        if effective_key in state.last_def:
+            self._add_edge(
+                state, state.last_def[effective_key], use_nid, "def-use", effective_key
+            )
+        elif variable in state.last_def_by_name:
+            self._add_edge(
+                state,
+                state.last_def_by_name[variable],
+                use_nid,
+                "def-use",
+                effective_key,
+            )
+
+    # ------------------------------------------------------------------
+    # Canonical key / metadata helpers
+    # ------------------------------------------------------------------
+
+    def _var_kind(self, var_name: str, class_fields: dict[str, dict[str, Any]]) -> str:
+        """Determine the kind of a body variable (field vs local).
+
+        Args:
+            var_name(str): The variable name.
+            class_fields(dict[str, dict[str, Any]]): The owner's field context.
+
+        Returns:
+            str: "field" if the name is a known field, else "local".
+        """
+        return "field" if var_name in class_fields else "local"
+
+    def _make_var_key(self, state: _DFGState, var_name: str, var_kind: str) -> str:
+        """Build the canonical var_key for a body variable.
+
+        Fields reuse the AST's canonical field key (byte-identical to the AST
+        field vertex id); locals are scoped by the canonical method key.
+
+        Args:
+            state(_DFGState): The per-method build state.
+            var_name(str): The variable name.
+            var_kind(str): The variable kind ("field" or "local").
+
+        Returns:
+            str: The canonical var_key.
+        """
+        if var_kind == "field" and var_name in state.class_fields:
+            return str(state.class_fields[var_name]["key"])
+        return f"local:{state.method_key}:0:{var_name}"
+
+    def _get_node_line(self, node: Any) -> int | None:
+        """Safely extract the line number from a javalang node.
+
+        Args:
+            node(Any): A javalang AST node.
+
+        Returns:
+            int | None: The line number, or None if unavailable.
+        """
+        if hasattr(node, "position") and node.position:
+            return int(node.position.line)
+        return None
+
+    def _make_source_ref(self, file_path: str, line: int) -> dict[str, Any]:
+        """Build a source_ref dictionary for a single-line node.
+
+        Args:
+            file_path(str): The file path.
+            line(int): The source line number.
+
+        Returns:
+            dict[str, Any]: A source reference dictionary.
+        """
+        return {"file": file_path, "line_start": line, "line_end": line}
+
+    def _compute_stmt_key(self, file_path: str, line: int, kind: str, text: str) -> str:
+        """Compute a stable statement key (matches the AST parser/CFG builder).
+
+        Args:
+            file_path(str): The file path.
+            line(int): The line number.
+            kind(str): The statement/operation kind.
+            text(str): The text to hash.
+
+        Returns:
+            str: A key of the form `stmt:<path>:<line>:<kind>:<hash>`.
+        """
+        text_hash = hashlib.sha1(
+            text.encode("utf-8", errors="replace"), usedforsecurity=False
+        ).hexdigest()[:8]
+        return f"stmt:{file_path}:{line}:{kind}:{text_hash}"
+
+    def _make_stmt_key(
+        self, file_path: str, kind: str, text: str, line: int | None
+    ) -> str | None:
+        """Build a stmt_key, or None when the node has no source position.
+
+        Args:
+            file_path(str): The file path.
+            kind(str): The statement/operation kind.
+            text(str): The text to hash.
+            line(int | None): The source line number, if available.
+
+        Returns:
+            str | None: The statement key, or None.
+        """
+        if line is None:
+            return None
+        return self._compute_stmt_key(file_path, line, kind, text)
 
     # ------------------------------------------------------------------
     # DFG construction
@@ -178,59 +460,56 @@ class JavaDFGBuilderService(DFGBuilderService):
     def _build_method_dfg(
         self,
         java_method: Any,
-        class_name: str,
+        scope: str,
+        owner_fqn: str,
+        parameters: list[dict[str, Any]],
         class_fields: dict[str, dict[str, Any]],
+        file_path: str,
     ) -> dict[str, Any]:
         """Build a DFG dict for a single method.
 
         Args:
-            java_method (Any): The method node from which to build the DFG.
-            class_name (str): The name of the class containing the method, used for scoping.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
+            java_method(Any): The javalang method node.
+            scope(str): The canonical method key used as the document scope.
+            owner_fqn(str): The FQN of the owning type.
+            parameters(list[dict[str, Any]]): The AST-resolved parameters
+                (name, type_simple, type_fqn).
+            class_fields(dict[str, dict[str, Any]]): The owner's field context.
+            file_path(str): The file path for node source_ref/stmt_key.
 
         Returns:
-            dict[str, Any]: A dictionary containing the method name, scope,
-                list of nodes, list of edges, defs mapping, and uses mapping.
+            dict[str, Any]: A dict with method name, canonical scope, nodes,
+                edges, defs/uses (by var_key) and metrics.
         """
-        method_name = java_method.name
-        scope = f"{class_name}.{method_name}"
+        state = _DFGState(
+            graph=nx.DiGraph(),
+            counter=[0],
+            file_path=file_path,
+            method_key=scope,
+            owner_fqn=owner_fqn,
+            class_fields=class_fields,
+        )
 
-        graph = nx.DiGraph()
-        counter = [0]
-        defs: dict[str, list[int]] = {}
-        uses: dict[str, list[int]] = {}
-        last_def: dict[str, int] = {}
-
-        # Add parameter nodes as implicit definitions
-        for param in java_method.parameters or []:
-            param_name = param.name
-            nid = self._add_node(
-                graph,
-                counter,
-                defs,
-                uses,
-                last_def,
+        # Add parameter nodes as implicit definitions (canonical param var_key).
+        for param in parameters:
+            param_name = param["name"]
+            var_key = f"param:{scope}:{param_name}"
+            self._add_node(
+                state,
                 param_name,
                 "param",
                 "def",
+                var_key=var_key,
+                type_simple=param.get("type_simple"),
+                type_fqn=param.get("type_fqn"),
             )
-            last_def[param_name] = nid
 
-        # Analyze method body
         if java_method.body:
-            self._analyze_block(
-                java_method.body,
-                class_fields,
-                graph,
-                counter,
-                defs,
-                uses,
-                last_def,
-            )
+            self._analyze_block(state, java_method.body)
 
+        graph = state.graph
         return {
-            "method_name": method_name,
+            "method_name": java_method.name,
             "scope": scope,
             "nodes": [{"id": nid, **graph.nodes[nid]} for nid in graph.nodes()],
             "edges": [
@@ -238,411 +517,182 @@ class JavaDFGBuilderService(DFGBuilderService):
                     "from": u,
                     "to": v,
                     "type": graph.edges[u, v].get("type", ""),
+                    "var_key": graph.edges[u, v].get("var_key", ""),
+                    "confidence": graph.edges[u, v].get("confidence", 1.0),
                 }
                 for u, v in graph.edges()
             ],
-            "defs": defs,
-            "uses": uses,
+            "defs": state.defs,
+            "uses": state.uses,
+            "metrics": {
+                "defs_count": sum(len(v) for v in state.defs.values()),
+                "uses_count": sum(len(v) for v in state.uses.values()),
+                "writes_count": sum(
+                    1
+                    for nid in graph.nodes()
+                    if graph.nodes[nid].get("operation") == "write"
+                ),
+                "variables_count": len(state.variables),
+            },
         }
 
     # ------------------------------------------------------------------
     # Statement analysis
     # ------------------------------------------------------------------
 
-    def _analyze_block(
-        self,
-        statements: list[Any],
-        class_fields: dict[str, dict[str, Any]],
-        graph: nx.DiGraph,
-        counter: list[int],
-        defs: dict[str, list[int]],
-        uses: dict[str, list[int]],
-        last_def: dict[str, int],
-    ) -> None:
-        """Analyze a block of statements and update the graph, defs, and uses.
+    def _analyze_block(self, state: _DFGState, statements: list[Any]) -> None:
+        """Analyze a block of statements.
 
         Args:
-            statements (list[Any]): A list of statement nodes to analyze.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
-            graph (nx.DiGraph): The graph being constructed.
-            counter (list[int]): A single-item list used to generate unique node IDs.
-            defs (dict[str, list[int]]): A mapping of variable names to lists of definition
-                node IDs.
-            uses (dict[str, list[int]]): A mapping of variable names to lists of use
-                node IDs.
-            last_def (dict[str, int]): A mapping of variable names to the most recent
-                definition node ID.
+            state(_DFGState): The per-method build state.
+            statements(list[Any]): The statement nodes to analyze.
         """
         if not statements:
             return
         for stmt in statements:
-            self._analyze_statement(
-                stmt,
-                class_fields,
-                graph,
-                counter,
-                defs,
-                uses,
-                last_def,
-            )
+            self._analyze_statement(state, stmt)
 
-    def _analyze_statement(
-        self,
-        stmt: Any,
-        class_fields: dict[str, dict[str, Any]],
-        graph: nx.DiGraph,
-        counter: list[int],
-        defs: dict[str, list[int]],
-        uses: dict[str, list[int]],
-        last_def: dict[str, int],
-    ) -> None:
-        """Analyze a single statement and update the graph, defs, and uses.
+    def _analyze_statement(self, state: _DFGState, stmt: Any) -> None:
+        """Analyze a single statement.
 
         Args:
-            stmt (Any): The statement node to analyze.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
-            graph (nx.DiGraph): The graph being constructed.
-            counter (list[int]): A single-item list used to generate unique node IDs.
-            defs (dict[str, list[int]]): A mapping of variable names to lists of definition
-                node IDs.
-            uses (dict[str, list[int]]): A mapping of variable names to lists of use
-                node IDs.
-            last_def (dict[str, int]): A mapping of variable names to the most recent
-                definition node ID.
+            state(_DFGState): The per-method build state.
+            stmt(Any): The statement node to analyze.
         """
         try:
             if isinstance(stmt, LocalVariableDeclaration):
-                self._analyze_local_var_decl(
-                    stmt,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                self._analyze_local_var_decl(state, stmt)
             elif isinstance(stmt, StatementExpression):
-                self._analyze_expression(
-                    stmt.expression,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                self._analyze_expression(state, stmt.expression, stmt)
             elif isinstance(stmt, IfStatement):
-                for var in self._extract_vars(stmt.condition, class_fields):
-                    nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "use",
-                    )
-                    self._connect_def_to_use(graph, last_def, var, nid)
-                self._analyze_statement(
-                    stmt.then_statement,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                for var in self._extract_vars(stmt.condition, state.class_fields):
+                    nid = self._add_var_node(state, var, "use", stmt)
+                    self._connect_def_to_use(state, var, nid)
+                self._analyze_statement(state, stmt.then_statement)
                 if stmt.else_statement:
-                    self._analyze_statement(
-                        stmt.else_statement,
-                        class_fields,
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                    )
+                    self._analyze_statement(state, stmt.else_statement)
             elif isinstance(stmt, WhileStatement):
-                for var in self._extract_vars(stmt.condition, class_fields):
-                    nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "use",
-                    )
-                    self._connect_def_to_use(graph, last_def, var, nid)
-                self._analyze_statement(
-                    stmt.body,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                for var in self._extract_vars(stmt.condition, state.class_fields):
+                    nid = self._add_var_node(state, var, "use", stmt)
+                    self._connect_def_to_use(state, var, nid)
+                self._analyze_statement(state, stmt.body)
             elif isinstance(stmt, ForStatement):
                 if hasattr(stmt, "control") and stmt.control:
                     if hasattr(stmt.control, "init"):
-                        self._analyze_expression(
-                            stmt.control.init,
-                            class_fields,
-                            graph,
-                            counter,
-                            defs,
-                            uses,
-                            last_def,
-                        )
+                        self._analyze_expression(state, stmt.control.init, stmt)
                     if hasattr(stmt.control, "condition"):
-                        self._analyze_expression(
-                            stmt.control.condition,
-                            class_fields,
-                            graph,
-                            counter,
-                            defs,
-                            uses,
-                            last_def,
-                        )
-                self._analyze_statement(
-                    stmt.body,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                        self._analyze_expression(state, stmt.control.condition, stmt)
+                self._analyze_statement(state, stmt.body)
             elif isinstance(stmt, ReturnStatement):
                 if stmt.expression:
-                    for var in self._extract_vars(stmt.expression, class_fields):
-                        nid = self._add_node(
-                            graph,
-                            counter,
-                            defs,
-                            uses,
-                            last_def,
-                            var,
-                            self._var_type(var, class_fields),
-                            "use",
-                        )
-                        self._connect_def_to_use(graph, last_def, var, nid)
+                    for var in self._extract_vars(stmt.expression, state.class_fields):
+                        nid = self._add_var_node(state, var, "use", stmt)
+                        self._connect_def_to_use(state, var, nid)
             elif isinstance(stmt, BlockStatement):
-                self._analyze_block(
-                    stmt.statements,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                self._analyze_block(state, stmt.statements)
             elif isinstance(stmt, TryStatement):
-                self._analyze_block(
-                    stmt.block,
-                    class_fields,
-                    graph,
-                    counter,
-                    defs,
-                    uses,
-                    last_def,
-                )
+                self._analyze_block(state, stmt.block)
                 if stmt.catches:
                     for catch in stmt.catches:
-                        self._analyze_block(
-                            catch.block,
-                            class_fields,
-                            graph,
-                            counter,
-                            defs,
-                            uses,
-                            last_def,
-                        )
+                        self._analyze_block(state, catch.block)
                 if stmt.finally_block:
-                    self._analyze_block(
-                        stmt.finally_block,
-                        class_fields,
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                    )
-        except Exception as e:
-            logger.debug(f"Error analyzing statement {type(stmt).__name__}: {e}")
+                    self._analyze_block(state, stmt.finally_block)
+        except Exception:
+            logger.exception(
+                f"Graphs(DFG Java): Error analyzing statement {type(stmt).__name__}"
+            )
 
     def _analyze_local_var_decl(
-        self,
-        stmt: LocalVariableDeclaration,
-        class_fields: dict[str, dict[str, Any]],
-        graph: nx.DiGraph,
-        counter: list[int],
-        defs: dict[str, list[int]],
-        uses: dict[str, list[int]],
-        last_def: dict[str, int],
+        self, state: _DFGState, stmt: LocalVariableDeclaration
     ) -> None:
-        """Analyze a local variable declaration statement, adding definition nodes and edges
-        for initializers.
+        """Analyze a local variable declaration, adding def nodes and init edges.
 
         Args:
-            stmt (LocalVariableDeclaration): The local variable declaration statement to analyze.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
-            graph (nx.DiGraph): The graph being constructed.
-            counter (list[int]): A single-item list used to generate unique node IDs.
-            defs (dict[str, list[int]]): A mapping of variable names to lists of definition
-                node IDs.
-            uses (dict[str, list[int]]): A mapping of variable names to lists of use
-                node IDs.
-            last_def (dict[str, int]): A mapping of variable names to the most recent
-                definition node ID.
+            state(_DFGState): The per-method build state.
+            stmt(LocalVariableDeclaration): The declaration to analyze.
         """
+        line = self._get_node_line(stmt)
+        source_ref = (
+            self._make_source_ref(state.file_path, line) if line is not None else None
+        )
+        type_simple = stmt.type.name if hasattr(stmt.type, "name") else str(stmt.type)
+
         for declarator in stmt.declarators:
+            var_name = declarator.name
+            var_key = f"local:{state.method_key}:0:{var_name}"
             def_nid = self._add_node(
-                graph,
-                counter,
-                defs,
-                uses,
-                last_def,
-                declarator.name,
+                state,
+                var_name,
                 "local",
                 "def",
+                line=line,
+                var_key=var_key,
+                source_ref=source_ref,
+                stmt_key=self._make_stmt_key(
+                    state.file_path, "def", f"{type_simple} {var_name}", line
+                ),
+                type_simple=type_simple,
             )
             if declarator.initializer:
-                for var in self._extract_vars(declarator.initializer, class_fields):
-                    use_nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "use",
-                    )
-                    self._connect_def_to_use(graph, last_def, var, use_nid)
-                    self._add_edge(graph, use_nid, def_nid, "init")
+                for used in self._extract_vars(
+                    declarator.initializer, state.class_fields
+                ):
+                    use_nid = self._add_var_node(state, used, "use", stmt)
+                    self._connect_def_to_use(state, used, use_nid)
+                    self._add_edge(state, use_nid, def_nid, "init", var_key=var_key)
 
     def _analyze_expression(
-        self,
-        expr: Any,
-        class_fields: dict[str, dict[str, Any]],
-        graph: nx.DiGraph,
-        counter: list[int],
-        defs: dict[str, list[int]],
-        uses: dict[str, list[int]],
-        last_def: dict[str, int],
+        self, state: _DFGState, expr: Any, parent_stmt: Any = None
     ) -> None:
-        """Analyze an expression and update the graph, defs, and uses.
+        """Analyze an expression.
 
         Args:
-            expr (Any): The expression node to analyze.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
-            graph (nx.DiGraph): The graph being constructed.
-            counter (list[int]): A single-item list used to generate unique node IDs.
-            defs (dict[str, list[int]]): A mapping of variable names to lists of definition
-                node IDs.
-            uses (dict[str, list[int]]): A mapping of variable names to lists of use
-                node IDs.
-            last_def (dict[str, int]): A mapping of variable names to the most recent
-                definition node ID.
+            state(_DFGState): The per-method build state.
+            expr(Any): The expression node to analyze.
+            parent_stmt(Any): The enclosing statement for source positions.
         """
         if expr is None:
             return
         try:
             if isinstance(expr, Assignment):
-                right_vars = self._extract_vars(expr.value, class_fields)
                 right_nids: list[int] = []
-                for var in right_vars:
-                    nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "use",
-                    )
-                    self._connect_def_to_use(graph, last_def, var, nid)
+                for var in self._extract_vars(expr.value, state.class_fields):
+                    nid = self._add_var_node(state, var, "use", parent_stmt)
+                    self._connect_def_to_use(state, var, nid)
                     right_nids.append(nid)
-                for var in self._extract_vars(expr.expressionl, class_fields):
-                    def_nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "write",
-                    )
+                for var in self._extract_vars(expr.expressionl, state.class_fields):
+                    def_nid = self._add_var_node(state, var, "write", parent_stmt)
+                    def_var_kind = self._var_kind(var, state.class_fields)
+                    def_var_key = self._make_var_key(state, var, def_var_kind)
                     for use_nid in right_nids:
-                        self._add_edge(graph, use_nid, def_nid, "flow")
+                        self._add_edge(
+                            state, use_nid, def_nid, "flow", var_key=def_var_key
+                        )
             elif isinstance(expr, MethodInvocation):
                 if expr.qualifier:
-                    for var in self._extract_vars(expr.qualifier, class_fields):
-                        nid = self._add_node(
-                            graph,
-                            counter,
-                            defs,
-                            uses,
-                            last_def,
-                            var,
-                            self._var_type(var, class_fields),
-                            "use",
-                        )
-                        self._connect_def_to_use(graph, last_def, var, nid)
+                    for var in self._extract_vars(expr.qualifier, state.class_fields):
+                        nid = self._add_var_node(state, var, "use", parent_stmt)
+                        self._connect_def_to_use(state, var, nid)
                 if expr.arguments:
                     for arg in expr.arguments:
-                        for var in self._extract_vars(arg, class_fields):
-                            nid = self._add_node(
-                                graph,
-                                counter,
-                                defs,
-                                uses,
-                                last_def,
-                                var,
-                                self._var_type(var, class_fields),
-                                "use",
-                            )
-                            self._connect_def_to_use(graph, last_def, var, nid)
+                        for var in self._extract_vars(arg, state.class_fields):
+                            nid = self._add_var_node(state, var, "use", parent_stmt)
+                            self._connect_def_to_use(state, var, nid)
             elif isinstance(expr, BinaryOperation):
                 for var in self._extract_vars(
-                    expr.operandl, class_fields
-                ) + self._extract_vars(expr.operandr, class_fields):
-                    nid = self._add_node(
-                        graph,
-                        counter,
-                        defs,
-                        uses,
-                        last_def,
-                        var,
-                        self._var_type(var, class_fields),
-                        "use",
-                    )
-                    self._connect_def_to_use(graph, last_def, var, nid)
+                    expr.operandl, state.class_fields
+                ) + self._extract_vars(expr.operandr, state.class_fields):
+                    nid = self._add_var_node(state, var, "use", parent_stmt)
+                    self._connect_def_to_use(state, var, nid)
             elif isinstance(expr, This):
                 if hasattr(expr, "selectors") and expr.selectors:
                     for sel in expr.selectors:
                         if isinstance(sel, MethodInvocation):
-                            self._analyze_expression(
-                                sel,
-                                class_fields,
-                                graph,
-                                counter,
-                                defs,
-                                uses,
-                                last_def,
-                            )
-        except Exception as e:
-            logger.debug(f"Error analyzing expression {type(expr).__name__}: {e}")
+                            self._analyze_expression(state, sel, parent_stmt)
+        except Exception:
+            logger.exception(
+                f"Graphs(DFG Java): Error analyzing expression {type(expr).__name__}"
+            )
 
     # ------------------------------------------------------------------
     # Variable extraction
@@ -654,12 +704,11 @@ class JavaDFGBuilderService(DFGBuilderService):
         """Extract all variable names used in an expression.
 
         Args:
-            expr (Any): The expression node from which to extract variable names.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
+            expr(Any): The expression node from which to extract variable names.
+            class_fields(dict[str, dict[str, Any]]): The owner's field context.
 
         Returns:
-             list[str]: A list of variable names used in the expression.
+            list[str]: A list of variable names used in the expression.
         """
         variables: list[str] = []
         if expr is None:
@@ -715,16 +764,8 @@ class JavaDFGBuilderService(DFGBuilderService):
                 variables.extend(self._extract_vars(expr.condition, class_fields))
                 variables.extend(self._extract_vars(expr.if_true, class_fields))
                 variables.extend(self._extract_vars(expr.if_false, class_fields))
-        except Exception as e:
-            logger.debug(f"Error extracting variables from {type(expr).__name__}: {e}")
+        except Exception:
+            logger.exception(
+                f"Graphs(DFG Java): Error extracting variables from {type(expr).__name__}"
+            )
         return variables
-
-    def _var_type(self, var_name: str, class_fields: dict[str, dict[str, Any]]) -> str:
-        """Determine the type of a variable (field vs local) based on class fields.
-
-        Args:
-            var_name (str): The name of the variable.
-            class_fields (dict[str, dict[str, Any]]): A dictionary of class fields for
-                variable type resolution.
-        """
-        return "field" if var_name in class_fields else "local"

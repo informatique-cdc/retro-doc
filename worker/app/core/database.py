@@ -23,7 +23,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import BulkWriteError, OperationFailure
 
 from app.core.config import settings
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.pipeline.models import PipelineRunDocument
 from app.repos.models import FileDocument, RepoDocument
@@ -68,7 +68,7 @@ async def _init_database_async() -> None:
 
     doc_models: Sequence[type[Document]] = [
         RepoDocument,
-        MetaRepoDocument,
+        RepoMetaDocument,
         FileDocument,
         PipelineRunDocument,
         FileDocumentationDocument,
@@ -80,7 +80,7 @@ async def _init_database_async() -> None:
         await init_beanie(database=_database, document_models=doc_models)
         logger.info("Core: MongoDB resources initialized.")
     except Exception:
-        logger.exception(f"Core: MongoDB resources initialization failed.")
+        logger.exception("Core: MongoDB resources initialization failed.")
         sys.exit(1)
 
 
@@ -145,7 +145,7 @@ async def mongodb_retry(
             last_exc = exc
             wait_s = _get_retry_after_s(exc, attempt)
             logger.warning(
-                f"MongoDB throttled, attempt {attempt + 1}/"
+                f"Core: MongoDB throttled, attempt {attempt + 1}/"
                 f"{max_attempts}, retrying in {wait_s:.1f}s"
             )
             await asyncio.sleep(wait_s)
@@ -245,7 +245,7 @@ async def mongodb_retry_insert_many(
             )
             wait_s *= random.uniform(0.75, 1.25)  # nosec B311
             logger.warning(
-                f"mongodb_retry_insert_many: {len(pending)} doc(s) throttled, "
+                f"Core: MongoDB {len(pending)} doc(s) throttled (insert many), "
                 f"attempt {attempt + 1}/{max_attempts}, retrying in {wait_s:.1f}s"
             )
             await asyncio.sleep(wait_s)
@@ -256,7 +256,7 @@ async def mongodb_retry_insert_many(
         for code in settings.MONGODB_THROTTLE_CODES:
             error_codes.add(code)
         logger.warning(
-            f"mongodb_retry_insert_many: {len(pending)} doc(s) still throttled "
+            f"Core: MongoDB {len(pending)} doc(s) still throttled (insert many) "
             f"after {max_attempts} attempts"
         )
 

@@ -4,7 +4,7 @@ This module maps supported languages to their graph service implementations
 (AST parser, CFG builder, DFG builder).
 """
 
-from app.core.language_enum import Language
+from app.core.language import Language
 from app.graphs.service.ast_parser import ASTParserService, JavaASTParserService
 from app.graphs.service.cfg_builder import CFGBuilderService, JavaCFGBuilderService
 from app.graphs.service.dfg_builder import DFGBuilderService, JavaDFGBuilderService

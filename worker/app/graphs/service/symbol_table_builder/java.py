@@ -36,10 +36,8 @@ class JavaSymbolTableBuilderService(SymbolTableBuilderService):
         """
         try:
             tree = javalang.parse.parse(source_code)
-        except Exception as e:
-            logger.exception(
-                f"JavaSymbolTableBuilderService: Error parsing {file_path}"
-            )
+        except Exception:
+            logger.exception(f"Graphs(Symbol Table): Error parsing {file_path}")
             return None
 
         symbols: dict[str, dict[str, Any]] = {}

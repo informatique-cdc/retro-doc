@@ -3,14 +3,11 @@
 This module defines the ODM related to Repositories.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from beanie import Document, PydanticObjectId
 from pydantic import Field
 from pymongo import IndexModel
-
-from app.core.config import settings
-from app.core.language_enum import Language
 
 
 class RepoDocument(Document):
@@ -19,16 +16,13 @@ class RepoDocument(Document):
     repo_hash: str | None = None
     blob_path: str
     user_count: int = 1
-    language: Language
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(settings.APP_TIMEZONE)
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(settings.APP_TIMEZONE)
-    )
+    languages: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Settings:
-        name = "repositories"
+        name = "repos"
+        keep_nulls = False
 
 
 class FileDocument(Document):

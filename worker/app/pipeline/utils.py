@@ -51,28 +51,22 @@ def stream_extract(
     chunk_q: queue.Queue[bytes | None],
     file_q: asyncio.Queue[tuple[str, bytes] | None],
     loop: asyncio.AbstractEventLoop,
-    extension: str,
     extracted_prefix: str,
 ) -> None:
-    """Decompress and filter the zip stream in a separate thread, putting
-    matching files into an async queue for upload.
+    """Decompress the zip stream in a separate thread, putting every real
+    file into an async queue for upload.
 
     Args:
         chunk_q(queue.Queue[bytes | None]): The queue to read the zip chunks from.
         file_q(asyncio.Queue[tuple[str, bytes] | None]): The queue to put
             extracted files into as (path, data) tuples.
         loop(asyncio.AbstractEventLoop): The event loop to use for thread-to-async communication
-        extension(str): The file extension to filter for (e.g. ".java").
         extracted_prefix(str): The prefix to prepend to extracted file paths when uploading.
     """
     for name_bytes, _size, file_chunks in stream_unzip(_drain_queue(chunk_q)):
         name = name_bytes.decode("utf-8")
 
-        if (
-            name.endswith("/")
-            or name.startswith("__MACOSX")
-            or not name.endswith(extension)
-        ):
+        if name.endswith("/") or name.startswith("__MACOSX"):
             for _ in file_chunks:
                 pass
             continue

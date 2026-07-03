@@ -1,9 +1,8 @@
 """Global configuration.
 
-This module defines the global configuration for the Retro-Documentation Backend application.
+This module defines the global configuration.
 """
 
-from datetime import timezone
 from typing import Literal
 
 from azure.functions import AuthLevel
@@ -22,7 +21,6 @@ class Settings(BaseSettings):
     # General
     APP_DEBUG: bool = False
     APP_AUTH_LEVEL: AuthLevel = AuthLevel.ANONYMOUS
-    APP_TIMEZONE: timezone = timezone.utc
 
     # Logging
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG"

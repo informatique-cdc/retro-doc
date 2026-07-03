@@ -5,7 +5,7 @@ This module defines the prompts used by the AI model.
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from app.core.language_enum import Language
+from app.core.language import Language
 
 _LANGUAGE_INSTRUCTIONS: dict[Language, str] = {
     Language.JAVA: """\
