@@ -15,7 +15,6 @@ from beanie import PydanticObjectId
 
 from app.auth.dependencies import get_current_user
 from app.auth.schemas import User
-from app.core.language_enum import Language
 from app.repos.dependencies import get_verified_file, get_verified_repo
 from app.repos.models import FileDocument, RepoDocument
 from app.users.dependencies import get_user_repo
@@ -69,7 +68,7 @@ def mock_repo_doc(repo_id: PydanticObjectId, blob_path: str) -> MagicMock:
     repo.repo_branch = None
     repo.repo_hash = None
     repo.blob_path = blob_path
-    repo.language = Language.JAVA
+    repo.languages = ["java"]
     repo.user_count = 1
     repo.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
     repo.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -116,8 +115,8 @@ async def two_persisted_user_repo_docs(
     user: User,
 ) -> tuple[UserRepoDocument, UserRepoDocument]:
     """Two `RepoDocument`/`UserRepoDocument` pairs persisted in mongomock."""
-    repo_a = RepoDocument(blob_path="a", language="java")
-    repo_b = RepoDocument(blob_path="b", language="java")
+    repo_a = RepoDocument(blob_path="a", languages=["java"])
+    repo_b = RepoDocument(blob_path="b", languages=["java"])
     await repo_a.insert()
     await repo_b.insert()
 

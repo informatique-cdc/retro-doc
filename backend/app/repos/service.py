@@ -16,9 +16,8 @@ from pymongo.errors import DuplicateKeyError
 from app.auth.schemas import User
 from app.chat.service import delete_threads_by_repo
 from app.core.blob_storage import get_container_client
-from app.core.language_enum import Language
 from app.deep_analysis.service import delete_analyses_by_repo
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.pipeline.models import PipelineRunDocument
 from app.pipeline.service import start_orchestration
@@ -30,7 +29,7 @@ async def analyze_file(
     filename: str,
     file_data: BinaryIO,
     name: str,
-    language: Language,
+    languages: list[str],
     user: User,
     color: str | None = None,
 ) -> PydanticObjectId:
@@ -40,7 +39,7 @@ async def analyze_file(
         filename(str): The original filename of the uploaded file.
         file_data(BinaryIO): The file-like object containing the ZIP data.
         name(str): The display name for the repository.
-        language(Language): The programming language to analyze.
+        languages(list[str]): The languages to analyze (empty = all supported).
         user(User): The authenticated user submitting the file.
         color(str | None): Optional hex color for the repository.
 
@@ -67,7 +66,7 @@ async def analyze_file(
     repo = RepoDocument(
         repo_url=repo_name,  # Store the original filename as repo_url for reference
         blob_path=blob_name.removesuffix(".zip"),
-        language=language.value,
+        languages=languages,
     )
     await repo.insert()
 
@@ -85,7 +84,7 @@ async def analyze_file(
     await pipeline_run.insert()
 
     # Start the analysis orchestration asynchronously
-    await start_orchestration(blob_name, language, pipeline_run)
+    await start_orchestration(blob_name, languages, pipeline_run)
 
     return repo.id  # type: ignore
 
@@ -223,17 +222,17 @@ async def get_files(repo_id: PydanticObjectId) -> list[FileDocument]:
 
 async def get_repo_meta(
     repo_id: PydanticObjectId,
-) -> MetaRepoDocument | None:
+) -> RepoMetaDocument | None:
     """Retrieve the meta document for a repository.
 
     Args:
         repo_id(PydanticObjectId): The RepoDocument ID.
 
     Returns:
-        MetaRepoDocument | None: The meta document, or None if it doesn't exist.
+        RepoMetaDocument | None: The meta document, or None if it doesn't exist.
     """
-    return await MetaRepoDocument.find_one(
-        MetaRepoDocument.repo_id == PydanticObjectId(repo_id),
+    return await RepoMetaDocument.find_one(
+        RepoMetaDocument.repo_id == PydanticObjectId(repo_id),
     )
 
 

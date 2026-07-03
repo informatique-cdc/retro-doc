@@ -3,10 +3,18 @@
 This module defines the data models (schemas) used for authentication-related operations.
 """
 
-import hashlib
+from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
+
+from app.auth.utils import compute_uid
+
+
+class AuthProviderName(StrEnum):
+    """Supported external identity providers for login."""
+
+    MICROSOFT = "microsoft"
 
 
 class User(BaseModel):
@@ -24,9 +32,41 @@ class User(BaseModel):
 
     @model_validator(mode="after")
     def _compute_uid(self) -> Self:
-        if self.oid and self.tid:
-            raw = f"azure:{self.tid}:{self.oid}"
-        else:
-            raw = f"oidc:{self.iss}:{self.sub}"
-        self.uid = hashlib.sha256(raw.encode()).hexdigest()
+        # An already-set uid came from a signature-verified app token; keep it.
+        if not self.uid:
+            self.uid = compute_uid(
+                oid=self.oid, tid=self.tid, iss=self.iss, sub=self.sub
+            )
         return self
+
+
+class LoginRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class MeResponse(BaseModel):
+    uid: str
+    name: str | None = None
+    preferred_username: str | None = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1)
+
+
+class TokenClaims(BaseModel):
+    """Identity claims embedded in app-issued tokens."""
+
+    uid: str
+    sub: str
+    oid: str | None = None
+    tid: str | None = None
+    name: str | None = None
+    preferred_username: str | None = None
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # access token lifetime in seconds

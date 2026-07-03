@@ -53,6 +53,21 @@ def mock_httpx_missing_id() -> Any:
 
 
 @pytest.fixture
+def mock_httpx_unprocessable() -> Any:
+    """Patch `httpx.AsyncClient` so the POST returns a 422 (rejected languages)."""
+    request = httpx.Request("POST", "http://test/api/pipeline")
+    mock_response = httpx.Response(status_code=422, request=request)
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = False
+
+    with patch.object(httpx, "AsyncClient", return_value=mock_client):
+        yield mock_client
+
+
+@pytest.fixture
 def mock_httpx_success() -> Any:
     """Patch `httpx.AsyncClient` to return a 200 response with `{"id": "..."}`."""
     mock_resp = MagicMock()

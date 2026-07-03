@@ -171,7 +171,7 @@ async def _run_deep_analysis(
     )
 
     if update_result.matched_count == 0:
-        logger.warning(f"Deep Analysis: {analysis_id} - Document deleted before start.")
+        logger.warning(f"Deep analysis: {analysis_id} - Document deleted before start.")
         return
 
     progress_current = 0
@@ -210,7 +210,7 @@ async def _run_deep_analysis(
                 ):
                     progress_current += 1
                     logger.debug(
-                        f"Deep Analysis: {analysis_id} - Model call #{progress_current} (subagent={is_subagent})."
+                        f"Deep analysis: {analysis_id} - Model call #{progress_current} (subagent={is_subagent})."
                     )
             elif method == "values" and not is_subagent:
                 # Capture the latest coordinator state snapshot. The final
@@ -232,14 +232,14 @@ async def _run_deep_analysis(
                 )
                 if update_result.matched_count == 0:
                     logger.warning(
-                        f"Deep Analysis: {analysis_id} - Document deleted "
+                        f"Deep analysis: {analysis_id} - Document deleted "
                         "during execution."
                     )
                     return
                 last_flush_at = mono
 
         logger.debug(
-            f"Deep Analysis: {analysis_id} - Stream finished after {progress_current} model calls."
+            f"Deep analysis: {analysis_id} - Stream finished after {progress_current} model calls."
         )
 
         if result is None:
@@ -274,11 +274,11 @@ async def _run_deep_analysis(
 
         if update_result.matched_count == 0:
             logger.warning(
-                f"Deep Analysis: {analysis_id} - Document deleted during execution."
+                f"Deep analysis: {analysis_id} - Document deleted during execution."
             )
             return
 
-        logger.info(f"Deep Analysis: {analysis_id} - Completed.")
+        logger.info(f"Deep analysis: {analysis_id} - Completed.")
 
     except Exception:
         logger.exception("Deep Analysis {}: Failed.", analysis_id)
@@ -348,7 +348,7 @@ async def generate_analysis_pdf(analysis: DeepAnalysisDocument) -> bytes:
     base_url = deep_analysis_settings.GOTENBERG_BASE_URL
     endpoint = "/forms/chromium/convert/markdown"
     logger.debug(
-        f"Deep Analysis: PDF request for {str(analysis.id)}",
+        f"Deep analysis: PDF request for {str(analysis.id)}",
     )
     try:
         async with httpx.AsyncClient(base_url=base_url) as client:
@@ -368,7 +368,7 @@ async def generate_analysis_pdf(analysis: DeepAnalysisDocument) -> bytes:
             response.raise_for_status()
     except httpx.HTTPError:
         logger.exception(
-            f"Deep Analysis: PDF service error for {str(analysis.id)}",
+            f"Deep analysis: PDF service error for {str(analysis.id)}",
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

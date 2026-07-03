@@ -11,10 +11,10 @@ dependencies = [
     "azure-storage-blob>=12.28.0",
     "beanie>=2.0.1",
     "cryptography>=46.0.5",
-    "deepagents>=0.6.1",
-    "fastapi[standard]==0.135.1",
+    "deepagents>=0.6.11",
+    "fastapi[standard]>=0.135.1",
     "httpx>=0.28.1",
-    "langchain>=1.2.10",
+    "langchain>=1.3.11",
     "langchain-anthropic>=1.4.1",
     "langchain-azure-ai>=1.1.1",
     "langchain-mistralai>=1.1.1",
@@ -82,11 +82,12 @@ ids = ["PYSEC-2025-183"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 env = [
-    "D:MONGODB_CONNECTION_STR=mongodb://localhost:27017/test",
+    "D:MONGODB_CONNECTION_STR=mongodb://fake-mongo.example.com:27017/fake",
     "D:BLOB_STORAGE_ACCOUNT_URL=https://fake.blob.core.windows.net",
-    "D:OIDC_AUDIENCE=test-audience",
+    "D:OIDC_AUDIENCE=fake-audience",
     "D:OIDC_ALLOWED_ISSUERS=[\"https://fake-issuer.example.com\"]",
     "D:OIDC_JWKS_URL=https://fake-issuer.example.com/.well-known/jwks.json",
+    "D:JWT_SECRET=fake-test-jwt-secret-at-least-32-bytes-long",
     "D:DURABLE_FUNCTIONS_BASE_URL=https://fake-durable.example.com",
     "D:CHAT_MODEL_BASE_URL=https://fake-chat.example.com",
     "D:CHAT_MODEL_API_KEY=fake-chat-key",
@@ -94,7 +95,7 @@ env = [
     "D:AZURE_AI_SEARCH_API_KEY=fake-search-key",
     "D:EMBEDDING_MODEL_ENDPOINT=https://fake-embedding.example.com",
     "D:EMBEDDING_MODEL_API_KEY=fake-embedding-key",
-    "D:GOTENBERG_BASE_URL=http://localhost:3000",
+    "D:GOTENBERG_BASE_URL=http://fake-gotenberg.example.com:3000",
 ]
 
 [tool.ruff.lint]

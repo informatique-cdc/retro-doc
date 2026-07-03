@@ -1,6 +1,6 @@
 """Global configuration.
 
-This module defines the global configuration for the Retro-Documentation Backend application.
+This module defines the global configuration.
 """
 
 from typing import Literal

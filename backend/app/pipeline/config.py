@@ -1,6 +1,6 @@
 """Pipeline configuration.
 
-This module defines the pipeline configuration for the Retro-Documentation Backend application.
+This module defines the pipeline configuration.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +16,9 @@ class PipelineSettings(BaseSettings):
 
     # Azure Durable Functions
     DURABLE_FUNCTIONS_BASE_URL: str
+
+    # Language support
+    LANGUAGES_CACHE_TTL_S: int = 300  # 5 minutes
 
 
 pipeline_settings = PipelineSettings()

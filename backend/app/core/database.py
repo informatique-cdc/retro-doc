@@ -15,7 +15,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from app.chat.models import ChatMessageDocument, ChatThreadDocument
 from app.core.config import settings
 from app.deep_analysis.models import DeepAnalysisDocument
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.pipeline.models import PipelineRunDocument
 from app.repos.models import FileDocument, RepoDocument
@@ -42,7 +42,7 @@ async def init_database() -> None:
         UserRepoDocument,
         RepoDocument,
         FileDocument,
-        MetaRepoDocument,
+        RepoMetaDocument,
         PipelineRunDocument,
         FileDocumentationDocument,
         ASTDocument,

@@ -19,7 +19,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY pyproject.toml uv.lock .
 
 # Install dependencies using uv
-RUN uv sync --compile-bytecode --link-mode=copy --no-cache --no-dev -q
+RUN uv sync --frozen --compile-bytecode --link-mode=copy --no-cache --no-dev -q
 
 # Copy the application code
 COPY . .

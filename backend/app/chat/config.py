@@ -1,6 +1,6 @@
 """Chat configuration.
 
-This module defines the chat configuration for the Retro-Documentation Backend application.
+This module defines the chat configuration.
 """
 
 from pydantic import SecretStr

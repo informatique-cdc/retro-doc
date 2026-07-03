@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import mongomock.database
 import pytest
 from beanie import PydanticObjectId, init_beanie
 from httpx import ASGITransport
@@ -18,9 +19,8 @@ from mongomock_motor import AsyncMongoMockClient
 
 from app.auth.schemas import User
 from app.chat.models import ChatMessageDocument, ChatThreadDocument
-from app.core.language_enum import Language
 from app.deep_analysis.models import DeepAnalysisDocument
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.pipeline.models import PipelineRunDocument
 from app.repos.models import FileDocument, RepoDocument
@@ -28,7 +28,7 @@ from app.users.models import UserRepoDocument
 
 
 @pytest.fixture(autouse=True)
-async def _init_beanie() -> None:
+async def _init_beanie(_mongomock_beanie_compat: None) -> None:
     """Initialize Beanie with an in-memory mongomock MongoDB."""
     mongo_client: AsyncMongoMockClient = AsyncMongoMockClient()  # type: ignore[type-arg]
     await init_beanie(
@@ -42,11 +42,38 @@ async def _init_beanie() -> None:
             DFGDocument,
             FileDocument,
             FileDocumentationDocument,
-            MetaRepoDocument,
+            RepoMetaDocument,
             PipelineRunDocument,
             RepoDocument,
             UserRepoDocument,
         ],
+    )
+
+
+@pytest.fixture
+def _mongomock_beanie_compat(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let mongomock tolerate beanie 2.x's `list_collection_names` kwargs.
+
+    beanie>=2.0 calls `list_collection_names(authorizedCollections=True, nameOnly=True)`
+    during `init_beanie`; mongomock 4.3.0 only accepts `filter`/`session` and raises
+    `TypeError` on the extras. The real motor/pymongo driver accepts them, so we
+    drop the unsupported kwargs to mirror production behaviour in the in-memory mock.
+    """
+    original = mongomock.database.Database.list_collection_names
+
+    def _list_collection_names(
+        self: mongomock.database.Database,
+        filter: dict[str, Any] | None = None,
+        session: Any = None,
+        **_kwargs: Any,
+    ) -> list[str]:
+        # mongomock is untyped, so the delegated call is seen as untyped/Any.
+        return original(  # type: ignore[no-any-return, no-untyped-call]
+            self, filter=filter, session=session
+        )
+
+    monkeypatch.setattr(
+        mongomock.database.Database, "list_collection_names", _list_collection_names
     )
 
 
@@ -120,7 +147,7 @@ def repo_doc(repo_id: PydanticObjectId, blob_path: str) -> RepoDocument:
     return RepoDocument(
         id=repo_id,
         blob_path=blob_path,
-        language=Language.JAVA,
+        languages=["java"],
     )
 
 

@@ -714,7 +714,7 @@ async def test_read_file_graph_truncates_large_graph() -> None:
 )
 async def test_read_repo_metadata(meta_doc: Any, expected: str) -> None:
     """Returns metadata content or 'No metadata found' message."""
-    with _patch_find_one("app.chat.tools.MetaRepoDocument.find_one", meta_doc):
+    with _patch_find_one("app.chat.tools.RepoMetaDocument.find_one", meta_doc):
         result = await _read_meta(runtime=_make_runtime())
 
     assert result == expected
