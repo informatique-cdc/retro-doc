@@ -75,7 +75,7 @@
           class="edit-dialog__select"
           disabled
         >
-          <option [value]="repo().language">{{ languageLabel() }}</option>
+          <option [value]="languageLabel()">{{ languageLabel() }}</option>
         </select>
       </div>
 
@@ -107,20 +107,54 @@
       }
     </div>
 
-    <footer class="edit-dialog__footer">
-      <ui-button variant="secondary" (click)="close()">{{ 'analyzeDialog.cancel' | translate }}</ui-button>
-      <ui-button
-        variant="primary"
-        [loading]="loading()"
-        [disabled]="loading()"
-        (click)="onSubmit()"
-      >
-        @if (loading()) {
-          {{ 'editRepoDialog.saving' | translate }}
-        } @else {
-          {{ 'editRepoDialog.save' | translate }}
-        }
+    @if (confirmingDelete()) {
+      <div class="edit-dialog__confirm" role="alertdialog" aria-labelledby="delete-confirm-title">
+        <h3 id="delete-confirm-title" class="edit-dialog__confirm-title">
+          {{ 'editRepoDialog.deleteTitle' | translate }}
+        </h3>
+        <p class="edit-dialog__confirm-text">
+          {{ 'editRepoDialog.deleteWarning' | translate: { name: repo().name } }}
+        </p>
+        <p class="edit-dialog__confirm-note">{{ 'editRepoDialog.deleteSubtitle' | translate }}</p>
+        <div class="edit-dialog__confirm-actions">
+          <ui-button variant="secondary" [disabled]="deleting()" (click)="cancelDelete()">
+            {{ 'editRepoDialog.deleteCancel' | translate }}
+          </ui-button>
+          <ui-button
+            variant="danger"
+            [loading]="deleting()"
+            [disabled]="deleting()"
+            (click)="confirmDelete()"
+          >
+            @if (deleting()) {
+              {{ 'editRepoDialog.deleting' | translate }}
+            } @else {
+              {{ 'editRepoDialog.deleteConfirm' | translate }}
+            }
+          </ui-button>
+        </div>
+      </div>
+    }
+
+    <footer class="edit-dialog__footer edit-dialog__footer--split">
+      <ui-button variant="danger" [disabled]="loading()" (click)="requestDelete()">
+        {{ 'editRepoDialog.delete' | translate }}
       </ui-button>
+      <div class="edit-dialog__footer-actions">
+        <ui-button variant="secondary" (click)="close()">{{ 'analyzeDialog.cancel' | translate }}</ui-button>
+        <ui-button
+          variant="primary"
+          [loading]="loading()"
+          [disabled]="loading()"
+          (click)="onSubmit()"
+        >
+          @if (loading()) {
+            {{ 'editRepoDialog.saving' | translate }}
+          } @else {
+            {{ 'editRepoDialog.save' | translate }}
+          }
+        </ui-button>
+      </div>
     </footer>
   </div>
 </dialog>

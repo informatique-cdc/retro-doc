@@ -18,6 +18,7 @@
   display: flex;
   flex-direction: column;
   overflow: visible;
+  position: relative;
 }
 
 .edit-dialog__header {
@@ -184,4 +185,54 @@
   gap: 0.75rem;
   padding: 1rem 1.5rem;
   border-block-start: 1px solid var(--color-border, #e5e7eb);
+
+  &--split {
+    justify-content: space-between;
+  }
+}
+
+.edit-dialog__footer-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+// Delete confirmation overlay
+.edit-dialog__confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  border-radius: 0.75rem;
+  background: var(--color-surface, #fff);
+}
+
+.edit-dialog__confirm-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.edit-dialog__confirm-text {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.edit-dialog__confirm-note {
+  font-size: 0.875rem;
+  color: #dc2626;
+  margin: 0;
+}
+
+.edit-dialog__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-block-start: 1rem;
 }

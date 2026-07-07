@@ -48,18 +48,21 @@ export class ChatService {
     return new Observable<ChatStreamEvent>((subscriber) => {
       const controller = new AbortController();
 
-      const token = this.userService.user()?.accessToken;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      this.userService
+        .getValidAccessToken()
+        .then((token) => {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
 
-      fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
+          return fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        })
         .then(async (response) => {
           if (!response.ok) {
             throw new Error(`Chat request failed: ${response.status}`);

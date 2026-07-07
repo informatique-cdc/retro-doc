@@ -53,6 +53,7 @@ export class EditRepoDialog implements AfterViewInit {
   readonly repo = input.required<Repo>();
   readonly closed = output<void>();
   readonly saved = output<void>();
+  readonly deleted = output<void>();
 
   private readonly repoService = inject(RepoService);
   private readonly repoStore = inject(RepoStore);
@@ -65,6 +66,8 @@ export class EditRepoDialog implements AfterViewInit {
   protected readonly selectedColor = signal('');
   protected readonly loading = signal(false);
   protected readonly serverError = signal<string | null>(null);
+  protected readonly confirmingDelete = signal(false);
+  protected readonly deleting = signal(false);
 
   protected readonly colorOptions = PROJECT_COLORS;
 
@@ -75,7 +78,9 @@ export class EditRepoDialog implements AfterViewInit {
   }
 
   protected languageLabel(): string {
-    return LANGUAGE_LABELS[this.repo().language] ?? this.repo().language;
+    return this.repo()
+      .languages.map((code) => LANGUAGE_LABELS[code] ?? code)
+      .join(', ');
   }
 
   protected close(): void {
@@ -122,6 +127,39 @@ export class EditRepoDialog implements AfterViewInit {
         error: () => {
           this.serverError.set(
             this.translateService.instant('editRepoDialog.saveFailed')
+          );
+        },
+      });
+  }
+
+  protected requestDelete(): void {
+    this.serverError.set(null);
+    this.confirmingDelete.set(true);
+  }
+
+  protected cancelDelete(): void {
+    this.confirmingDelete.set(false);
+  }
+
+  protected confirmDelete(): void {
+    this.serverError.set(null);
+    this.deleting.set(true);
+
+    this.repoService
+      .deleteRepo(this.repo().repo_id)
+      .pipe(
+        finalize(() => this.deleting.set(false)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: () => {
+          this.repoStore.invalidateRepos();
+          this.close();
+          this.deleted.emit();
+        },
+        error: () => {
+          this.serverError.set(
+            this.translateService.instant('editRepoDialog.deleteFailed')
           );
         },
       });

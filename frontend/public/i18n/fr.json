@@ -29,7 +29,8 @@
     "projectName": "Nom",
     "placeholder": "Ajoutez un nom pour votre projet",
     "language": "Langage de programmation",
-    "selectLang": "S\u00e9lectionnez un langage",
+    "autoDetectLang": "D\u00e9tecter automatiquement le langage",
+    "selectLanguages": "S\u00e9lectionnez les langages \u00e0 analyser",
     "projectColor": "Couleur du projet",
     "projectFiles": "Fichiers du projet",
     "dropzoneText": "Glissez-d\u00e9posez un fichier .zip ou cliquez pour parcourir",
@@ -37,7 +38,7 @@
     "uploading": "T\u00e9l\u00e9versement...",
     "startAnalysis": "D\u00e9marrer l'analyse",
     "nameRequired": "Le nom du projet est requis.",
-    "langRequired": "Veuillez s\u00e9lectionner un langage de programmation.",
+    "langRequired": "Veuillez s\u00e9lectionner au moins un langage.",
     "fileRequired": "Veuillez t\u00e9l\u00e9verser un fichier zip.",
     "uploadFailed": "\u00c9chec du t\u00e9l\u00e9versement. Veuillez r\u00e9essayer.",
     "comingSoon": "Bient\u00f4t disponible"
@@ -47,7 +48,15 @@
     "subtitle": "Changer le nom et la couleur de votre projet",
     "save": "Enregistrer",
     "saving": "Enregistrement...",
-    "saveFailed": "\u00c9chec de la sauvegarde. Veuillez r\u00e9essayer."
+    "saveFailed": "\u00c9chec de la sauvegarde. Veuillez r\u00e9essayer.",
+    "delete": "Supprimer le projet",
+    "deleting": "Suppression...",
+    "deleteTitle": "Supprimer le projet",
+    "deleteSubtitle": "Cette action est irr\u00e9versible",
+    "deleteWarning": "\u00cates-vous s\u00fbr de vouloir supprimer \u00ab\u00a0{{name}}\u00a0\u00bb ? Le projet sera d\u00e9finitivement retir\u00e9 de vos projets.",
+    "deleteCancel": "Annuler",
+    "deleteConfirm": "Supprimer",
+    "deleteFailed": "\u00c9chec de la suppression. Veuillez r\u00e9essayer."
   },
   "project": {
     "startAnalysis": "D\u00e9marrer l'analyse",
@@ -62,9 +71,11 @@
     "readme": "README",
     "loadingLabel": "Chargement des d\u00e9tails du projet",
     "repository": "D\u00e9p\u00f4t {{lang}}",
+    "repositoryGeneric": "D\u00e9p\u00f4t",
     "share": "Partager",
     "shareLabel": "Copier le lien de partage",
     "linkCopied": "Lien copi\u00e9 !",
+    "otherLanguages": "Autres",
     "comingSoon": "Bient\u00f4t disponible"
   },
   "import": {
@@ -81,7 +92,6 @@
     "noConversations": "Aucune conversation",
     "historyEmpty": "Votre historique d'analyse appara\u00eetra ici une fois que vous commencerez \u00e0 explorer votre code.",
     "files": "Fichiers",
-    "linesOfCode": "Lignes de code",
     "branches": "Branches",
     "contributors": "Contributeurs",
     "developer": "D\u00e9veloppeur",
@@ -169,12 +179,24 @@
     "loadFailed": "\u00c9chec du chargement des donn\u00e9es du graphe. Veuillez r\u00e9essayer.",
     "noFileSelected": "Aucun fichier s\u00e9lectionn\u00e9. S\u00e9lectionnez un fichier pour explorer son graphe.",
     "graphDescription": "Graphe {{type}} pour {{fileName}}. {{count}} n\u0153uds visibles.",
+    "legacyFormat": "Ce projet a \u00e9t\u00e9 analys\u00e9 avec un ancien format de graphe. Une nouvelle version est disponible : r\u00e9importez-le en tant que nouveau projet pour r\u00e9g\u00e9n\u00e9rer les graphes.",
+    "viewSource": "Voir le code source",
+    "viewDocumentation": "Voir la documentation",
     "fileTree": {
       "searchLabel": "Rechercher des fichiers",
       "searchPlaceholder": "Filtrer les fichiers...",
       "treeLabel": "Fichiers du projet",
       "noResults": "Aucun fichier ne correspond \u00e0 votre recherche"
     }
+  },
+  "fileSourceViewer": {
+    "title": "Code source",
+    "documentationTitle": "Documentation",
+    "close": "Fermer",
+    "resize": "Redimensionner le panneau",
+    "loading": "Chargement de la source...",
+    "loadFailed": "\u00c9chec du chargement du code source. Veuillez r\u00e9essayer.",
+    "docLoadFailed": "\u00c9chec du chargement de la documentation. Veuillez r\u00e9essayer."
   },
   "timeAgo": {
     "justNow": "\u00e0 l'instant",

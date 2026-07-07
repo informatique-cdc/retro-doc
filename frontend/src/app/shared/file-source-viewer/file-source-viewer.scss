@@ -1,0 +1,145 @@
+.file-source-viewer {
+  border: none;
+  padding: 0;
+  margin: 0;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  height: auto;
+  max-height: none;
+  min-width: 320px;
+  max-width: 95vw;
+  background: var(--color-surface, #fff);
+  box-shadow: -8px 0 32px rgb(0 0 0 / 0.12);
+
+  &[open] {
+    animation: file-source-viewer-slide-in 0.2s ease-out;
+  }
+
+  &--resizing {
+    user-select: none;
+  }
+
+  &::backdrop {
+    background: rgb(0 0 0 / 0.15);
+  }
+}
+
+@keyframes file-source-viewer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.file-source-viewer__panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.file-source-viewer__resize-handle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 8px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 1;
+  touch-action: none;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--color-focus, #4f46e5);
+    opacity: 0.4;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: -2px;
+    opacity: 0.6;
+  }
+}
+
+.file-source-viewer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-block-end: 1px solid var(--color-border, #e5e7eb);
+  flex-shrink: 0;
+}
+
+.file-source-viewer__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-source-viewer__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--color-surface-alt, #f3f4f6);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: -2px;
+  }
+}
+
+.file-source-viewer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.file-source-viewer__status {
+  padding: 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0;
+
+  &--error {
+    color: #dc2626;
+  }
+}
+
+.file-source-viewer__code {
+  margin: 0;
+  padding: 1.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  tab-size: 2;
+
+  code {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    white-space: pre;
+    background: transparent;
+    padding: 0;
+  }
+}
+
+.file-source-viewer__doc {
+  padding: 1.5rem;
+}

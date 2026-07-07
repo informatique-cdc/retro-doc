@@ -80,7 +80,7 @@ export class Dashboard {
   }
 
   protected languageLabel(repo: Repo): string {
-    return LANGUAGE_LABELS[repo.language] ?? repo.language;
+    return repo.languages.map((code) => LANGUAGE_LABELS[code] ?? code).join(', ');
   }
 
   protected timeAgo(isoDate: string): string {
@@ -91,7 +91,7 @@ export class Dashboard {
     if (repo.color) {
       return { fill: repo.color, bg: hexToTint(repo.color) };
     }
-    return ICON_COLORS[repo.language] ?? DEFAULT_ICON_COLORS;
+    return ICON_COLORS[repo.languages[0]] ?? DEFAULT_ICON_COLORS;
   }
 
   protected openEditDialog(repo: Repo, event: Event): void {
@@ -104,6 +104,10 @@ export class Dashboard {
   }
 
   protected onRepoSaved(): void {
+    this.editingRepo.set(null);
+  }
+
+  protected onRepoDeleted(): void {
     this.editingRepo.set(null);
   }
 

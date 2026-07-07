@@ -3,21 +3,29 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { map, Observable } from 'rxjs';
 import {
   AnalyzeFileResponse,
+  FileDocumentationResponse,
   FileGraphsResponse,
+  FileSourceResponse,
   ImportRepoResponse,
-  Language,
   PipelineStatusResponse,
   Repo,
   RepoDetail,
   RepoFile,
   RepoFilesResponse,
   RepoListResponse,
+  SupportedLanguagesResponse,
   UpdateUserRepoRequest,
 } from './api.models';
 
 @Injectable({ providedIn: 'root' })
 export class RepoService {
   private readonly http = inject(HttpClient);
+
+  getSupportedLanguages(): Observable<string[]> {
+    return this.http
+      .get<SupportedLanguagesResponse>('/api/v0/languages')
+      .pipe(map((res) => res.languages));
+  }
 
   getRepos(search?: string): Observable<Repo[]> {
     let params = new HttpParams();
@@ -49,11 +57,30 @@ export class RepoService {
     );
   }
 
-  analyzeFile(file: File, name: string, language: Language, color: string): Observable<AnalyzeFileResponse> {
+  getFileSource(repoId: string, fileId: string): Observable<FileSourceResponse> {
+    return this.http.get<FileSourceResponse>(
+      `/api/v0/repos/${encodeURIComponent(repoId)}/files/${encodeURIComponent(fileId)}/src`
+    );
+  }
+
+  getFileDoc(repoId: string, fileId: string): Observable<FileDocumentationResponse> {
+    return this.http.get<FileDocumentationResponse>(
+      `/api/v0/repos/${encodeURIComponent(repoId)}/files/${encodeURIComponent(fileId)}/doc`
+    );
+  }
+
+  analyzeFile(
+    file: File,
+    name: string,
+    languages: string[],
+    color: string
+  ): Observable<AnalyzeFileResponse> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', name);
-    formData.append('language', language);
+    for (const language of languages) {
+      formData.append('languages', language);
+    }
     formData.append('color', color);
     return this.http.post<AnalyzeFileResponse>('/api/v0/repos', formData);
   }
@@ -79,13 +106,13 @@ export class RepoService {
   analyzeGitUrl(
     url: string,
     name: string,
-    language: Language,
+    languages: string[],
     color: string
   ): Observable<AnalyzeFileResponse> {
     return this.http.post<AnalyzeFileResponse>('/api/v0/repos/analyze/git', {
       url,
       name,
-      language,
+      languages,
       color,
     });
   }

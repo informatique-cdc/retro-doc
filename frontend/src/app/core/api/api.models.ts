@@ -1,12 +1,16 @@
 export type Language = 'java' | 'python' | 'typescript' | 'cobol';
 
+export interface SupportedLanguagesResponse {
+  languages: string[];
+}
+
 export interface Repo {
   repo_id: string;
   name: string;
   repo_url: string | null;
   repo_branch: string | null;
   repo_hash: string | null;
-  language: Language;
+  languages: Language[];
   color: string | null;
   created_at: string;
   updated_at: string;
@@ -16,8 +20,28 @@ export interface RepoListResponse {
   repos: Repo[];
 }
 
+export interface AnalysisStats {
+  files_detected: number;
+  files_by_extension: Record<string, number>;
+  file_success: number;
+  file_failed: number;
+  ast_success: number;
+  ast_failed: number;
+  cfg_success: number;
+  cfg_failed: number;
+  cfg_build_failed: number;
+  dfg_success: number;
+  dfg_failed: number;
+  dfg_build_failed: number;
+  doc_success: number;
+  doc_failed: number;
+  rag_success: number;
+  rag_failed: number;
+}
+
 export interface RepoDetail extends Repo {
   content: string | null;
+  stats: AnalysisStats | null;
 }
 
 export interface RepoFile {
@@ -29,6 +53,19 @@ export interface RepoFile {
 export interface RepoFilesResponse {
   repo_id: string;
   files: RepoFile[];
+}
+
+export interface FileSourceResponse {
+  repo_id: string;
+  file_id: string;
+  path: string;
+  content: string;
+}
+
+export interface FileDocumentationResponse {
+  repo_id: string;
+  file_id: string;
+  content: string;
 }
 
 export type PipelineStatus = 'pending' | 'running' | 'completed' | 'failed';

@@ -1,0 +1,71 @@
+<dialog
+  #dialog
+  class="file-source-viewer"
+  [class.file-source-viewer--resizing]="resizing()"
+  [style.width.%]="widthPercent()"
+  aria-labelledby="file-source-viewer-title"
+  (close)="onDialogClose()"
+  (click)="onBackdropClick($event)"
+  (keydown.escape)="onEscape($event)"
+  tabindex="-1"
+>
+  <div
+    class="file-source-viewer__resize-handle"
+    role="separator"
+    aria-orientation="vertical"
+    tabindex="0"
+    [attr.aria-label]="'fileSourceViewer.resize' | translate"
+    [attr.aria-valuenow]="widthPercent()"
+    [attr.aria-valuemin]="minWidthPercent"
+    [attr.aria-valuemax]="maxWidthPercent"
+    (pointerdown)="onResizeStart($event)"
+    (pointermove)="onResizeMove($event)"
+    (pointerup)="onResizeEnd($event)"
+    (keydown)="onResizeKeydown($event)"
+  ></div>
+
+  <div class="file-source-viewer__panel">
+    <header class="file-source-viewer__header">
+      <h2 id="file-source-viewer-title" class="file-source-viewer__title">
+        @if (mode() === 'documentation') {
+          {{ 'fileSourceViewer.documentationTitle' | translate }}
+        } @else {
+          {{ path() ?? ('fileSourceViewer.title' | translate) }}
+        }
+      </h2>
+      <button
+        type="button"
+        class="file-source-viewer__close"
+        [attr.aria-label]="'fileSourceViewer.close' | translate"
+        (click)="close()"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="file-source-viewer__body">
+      @if (loading()) {
+        <p class="file-source-viewer__status">{{ 'fileSourceViewer.loading' | translate }}</p>
+      } @else if (error(); as err) {
+        <p class="file-source-viewer__status file-source-viewer__status--error">{{ err }}</p>
+      } @else if (content() !== null) {
+        @if (mode() === 'documentation') {
+          <div
+            class="file-source-viewer__doc markdown-body"
+            [innerHTML]="content() | markdown"
+            [appMermaid]="content() | markdown"
+          ></div>
+        } @else {
+          <pre class="file-source-viewer__code"><code class="hljs" [innerHTML]="highlightedSource()"></code></pre>
+        }
+      }
+    </div>
+  </div>
+</dialog>
