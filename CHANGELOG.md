@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Analyses can now target multiple languages per repository (previously a single language).
 - Repository statistics captured during analysis (e.g. number of files and number of files
-  per extension) and displayed to the end user.
+  per extension) and surfaced to the end user once the analysis completes.
 
 ### Changed
 
