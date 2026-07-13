@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3.21.2
+        uses: DeterminateSystems/determinate-nix-action@v3.21.5
       - name: Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@v14
       - name: Scan Secrets
