@@ -13,8 +13,7 @@ from beanie import PydanticObjectId
 from fastapi import HTTPException
 
 from app.auth.schemas import User
-from app.core.language_enum import Language
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import AnalysisStats, FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.pipeline.models import PipelineRunDocument
 from app.repos.models import FileDocument, RepoDocument
@@ -45,12 +44,12 @@ async def test_analyze_file_creates_all_documents(
 ) -> None:
     """Creates RepoDocument, UserRepoDocument, and PipelineRunDocument in the database."""
     repo_id = await analyze_file(
-        "code.zip", MagicMock(), "my-repo", Language.JAVA, user, color="#FF5733"
+        "code.zip", MagicMock(), "my-repo", ["java"], user, color="#FF5733"
     )
 
     repo = await RepoDocument.get(repo_id)
     assert repo is not None
-    assert repo.language == Language.JAVA
+    assert repo.languages == ["java"]
 
     user_repos = await UserRepoDocument.find(
         UserRepoDocument.repo_id == repo_id
@@ -71,7 +70,7 @@ async def test_analyze_file_creates_all_documents(
 async def test_analyze_file_rejects_empty_filename(user: User) -> None:
     """Empty filename is rejected with HTTP 400."""
     with pytest.raises(HTTPException) as exc_info:
-        await analyze_file("", MagicMock(), "my-repo", Language.JAVA, user)
+        await analyze_file("", MagicMock(), "my-repo", ["java"], user)
 
     assert exc_info.value.status_code == 400
 
@@ -79,7 +78,7 @@ async def test_analyze_file_rejects_empty_filename(user: User) -> None:
 async def test_analyze_file_rejects_non_zip(user: User) -> None:
     """Non-zip filenames are rejected with HTTP 400."""
     with pytest.raises(HTTPException) as exc_info:
-        await analyze_file("readme.txt", MagicMock(), "my-repo", Language.JAVA, user)
+        await analyze_file("readme.txt", MagicMock(), "my-repo", ["java"], user)
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Only .zip files are accepted."
@@ -254,9 +253,11 @@ async def test_get_files_returns_matching(
 
 
 async def test_get_repo_meta_found(persisted_repo_doc: RepoDocument) -> None:
-    """Returns MetaRepoDocument when it exists."""
-    meta = MetaRepoDocument(
-        repo_id=persisted_repo_doc.id, content="Repository overview."
+    """Returns RepoMetaDocument when it exists."""
+    meta = RepoMetaDocument(
+        repo_id=persisted_repo_doc.id,
+        content="Repository overview.",
+        stats=AnalysisStats(files_detected=3, ast_success=2),
     )
     await meta.insert()
 
@@ -264,6 +265,8 @@ async def test_get_repo_meta_found(persisted_repo_doc: RepoDocument) -> None:
 
     assert result is not None
     assert result.content == "Repository overview."
+    assert result.stats.files_detected == 3
+    assert result.stats.ast_success == 2
 
 
 async def test_get_repo_meta_not_found(repo_id: PydanticObjectId) -> None:
@@ -380,7 +383,7 @@ async def test_join_repo_rollback_garbage_collected(
     gc_repo = RepoDocument(
         id=repo_id,
         blob_path="gc/path",
-        language=Language.JAVA,
+        languages=["java"],
         user_count=0,
     )
     await gc_repo.insert()

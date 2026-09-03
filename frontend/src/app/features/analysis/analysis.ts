@@ -75,7 +75,6 @@ export class Analysis implements OnInit {
 
   protected readonly isZipUpload = computed(() => !this.repo()?.repo_branch);
 
-  protected readonly linesOfCode = signal('12.5K');
   protected readonly branchCount = signal(12);
   protected readonly contributorCount = signal(8);
 

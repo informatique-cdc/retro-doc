@@ -1,6 +1,6 @@
 """Deep analysis configuration.
 
-This module defines the configuration for the deep analysis feature.
+This module defines the deep analysis configuration.
 """
 
 from pydantic import SecretStr

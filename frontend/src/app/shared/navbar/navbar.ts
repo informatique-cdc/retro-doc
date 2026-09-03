@@ -82,7 +82,7 @@ export class Navbar implements OnInit {
     if (repo.color) {
       return repo.color;
     }
-    return ICON_COLORS[repo.language] ?? DEFAULT_ICON_COLOR;
+    return ICON_COLORS[repo.languages[0]] ?? DEFAULT_ICON_COLOR;
   }
 
   protected setLanguage(lang: AppLanguage): void {

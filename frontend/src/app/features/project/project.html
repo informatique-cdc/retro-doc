@@ -100,15 +100,15 @@
       </section>
     } @else {
       <!-- Language Breakdown -->
-      <section class="project__section-card" [class.project__section-card--disabled]="isZipUpload()">
+      <section class="project__section-card" [class.project__section-card--disabled]="!hasLanguageData()">
         <h2 class="project__section-title">{{ 'project.languageBreakdown' | translate }}</h2>
-        @if (isZipUpload()) {
+        @if (!hasLanguageData()) {
           <div class="project__coming-soon-banner" aria-label="{{ 'project.comingSoon' | translate }}">
             <span class="project__coming-soon-badge">{{ 'project.comingSoon' | translate }}</span>
           </div>
         }
-        <div class="project__languages" [attr.aria-hidden]="isZipUpload() || null">
-          @for (lang of languages(); track lang.name) {
+        <div class="project__languages" [attr.aria-hidden]="!hasLanguageData() || null">
+          @for (lang of displayLanguages(); track lang.name) {
             <div class="project__language">
               <div class="project__language-header">
                 <span class="project__language-name">{{ lang.name }}</span>
@@ -142,5 +142,6 @@
     [repo]="editRepo"
     (closed)="closeEditDialog()"
     (saved)="onRepoSaved()"
+    (deleted)="onRepoDeleted()"
   />
 }

@@ -9,44 +9,45 @@ from typing import Any
 from beanie import PydanticObjectId
 from pydantic import BaseModel, Field
 
-from app.core.language_enum import Language
+from app.docs.models import AnalysisStats
 from app.pipeline.models import PipelineMeta, PipelineStatus
 
 
-class AnalyzeFileResponseModel(BaseModel):
+class AnalyzeFileResponse(BaseModel):
     repo_id: PydanticObjectId
     status: PipelineStatus = PipelineStatus.PENDING
 
 
-class JoinRepoResponseModel(BaseModel):
+class JoinRepoResponse(BaseModel):
     repo_id: PydanticObjectId
     name: str
 
 
-class PipelineStatusResponseModel(BaseModel):
+class PipelineStatusResponse(BaseModel):
     repo_id: PydanticObjectId
     status: PipelineStatus
     meta: PipelineMeta | None = None
 
 
-class RepoResponseModel(BaseModel):
+class RepoResponse(BaseModel):
     repo_id: PydanticObjectId
     name: str
     repo_url: str | None
     repo_branch: str | None
     repo_hash: str | None
-    language: Language
+    languages: list[str]
     color: str | None = None
     created_at: datetime
     updated_at: datetime
 
 
-class RepoDetailResponseModel(RepoResponseModel):
+class RepoDetailResponse(RepoResponse):
     content: str | None = None
+    stats: AnalysisStats | None = None
 
 
-class RepoListResponseModel(BaseModel):
-    repos: list[RepoResponseModel]
+class RepoListResponse(BaseModel):
+    repos: list[RepoResponse]
 
 
 class UpdateUserRepoRequest(BaseModel):
@@ -54,38 +55,38 @@ class UpdateUserRepoRequest(BaseModel):
     color: str | None = Field(default=None, max_length=50)
 
 
-class FileResponseModel(BaseModel):
+class FileResponse(BaseModel):
     file_id: PydanticObjectId
     path: str
     file_hash: str
 
 
-class RepoFilesResponseModel(BaseModel):
+class RepoFilesResponse(BaseModel):
     repo_id: PydanticObjectId
-    files: list[FileResponseModel]
+    files: list[FileResponse]
 
 
-class FileDocumentationResponseModel(BaseModel):
+class FileDocumentationResponse(BaseModel):
     repo_id: PydanticObjectId
     file_id: PydanticObjectId
     content: str
 
 
-class ScopedGraphModel(BaseModel):
+class ScopedGraph(BaseModel):
     scope: str | None
     content: dict[str, Any]
 
 
-class FileSourceResponseModel(BaseModel):
+class FileSourceResponse(BaseModel):
     repo_id: PydanticObjectId
     file_id: PydanticObjectId
     path: str
     content: str
 
 
-class FileGraphsResponseModel(BaseModel):
+class FileGraphsResponse(BaseModel):
     repo_id: PydanticObjectId
     file_id: PydanticObjectId
     ast: dict[str, Any] | None
-    cfg: list[ScopedGraphModel]
-    dfg: list[ScopedGraphModel]
+    cfg: list[ScopedGraph]
+    dfg: list[ScopedGraph]

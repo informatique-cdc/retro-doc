@@ -17,7 +17,7 @@ from app.chat.config import chat_settings
 from app.chat.models import ChatMessageDocument
 from app.chat.vectorstore import get_vectorstore
 from app.core.blob_storage import get_container_client
-from app.docs.models import FileDocumentationDocument, MetaRepoDocument
+from app.docs.models import FileDocumentationDocument, RepoMetaDocument
 from app.graphs.models import ASTDocument, CFGDocument, DFGDocument
 from app.repos.models import FileDocument, RepoDocument
 
@@ -496,8 +496,8 @@ async def repo_read_metadata(
     repo_id = runtime.config["configurable"]["repo_id"]
     repo_oid = PydanticObjectId(repo_id)
 
-    meta = await MetaRepoDocument.find_one(
-        MetaRepoDocument.repo_id == repo_oid,
+    meta = await RepoMetaDocument.find_one(
+        RepoMetaDocument.repo_id == repo_oid,
     )
     if meta is None:
         return "No metadata found for this repository."

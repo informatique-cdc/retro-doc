@@ -1,8 +1,5 @@
 # Retro-Doc Backend
 
-<a href="https://conventionalcommits.org"><img src="https://img.shields.io/badge/conventional%20commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits Badge"></a>
-<a href="https://prek.j178.dev"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json" alt="prek Badge"></a>
-
 ## About
 
 The Retro-Doc project focuses on extracting knowledge from an existing codebase. This folder contains the backend implementation of that effort.

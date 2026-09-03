@@ -93,24 +93,45 @@
 
       <!-- Programming Language -->
       <div class="analyze-dialog__field">
-        <label class="analyze-dialog__label" for="language-select">
-          {{ 'analyzeDialog.language' | translate }}
-        </label>
-        <select
-          id="language-select"
-          class="analyze-dialog__select"
-          [class.analyze-dialog__select--error]="languageError()"
-          [value]="language()"
-          (change)="onLanguageChange($event)"
-          required
+        <span class="analyze-dialog__label">{{ 'analyzeDialog.language' | translate }}</span>
+
+        <button
+          type="button"
+          role="switch"
+          class="analyze-dialog__toggle"
+          [class.analyze-dialog__toggle--on]="autoDetect()"
+          [attr.aria-checked]="autoDetect()"
+          (click)="toggleAutoDetect()"
         >
-          <option value="" disabled>{{ 'analyzeDialog.selectLang' | translate }}</option>
-          @for (opt of languageOptions; track opt.value) {
-            <option [value]="opt.value" [disabled]="!opt.enabled">
-              {{ opt.label }}@if (!opt.enabled) { — {{ 'analyzeDialog.comingSoon' | translate }}}
-            </option>
-          }
-        </select>
+          <span class="analyze-dialog__toggle-track" aria-hidden="true">
+            <span class="analyze-dialog__toggle-thumb"></span>
+          </span>
+          <span>{{ 'analyzeDialog.autoDetectLang' | translate }}</span>
+        </button>
+
+        @if (!autoDetect()) {
+          <span class="analyze-dialog__lang-hint">
+            {{ 'analyzeDialog.selectLanguages' | translate }}
+          </span>
+          <div
+            class="analyze-dialog__chips"
+            role="group"
+            [attr.aria-label]="'analyzeDialog.selectLanguages' | translate"
+          >
+            @for (lang of availableLanguages(); track lang) {
+              <button
+                type="button"
+                class="analyze-dialog__chip"
+                [class.analyze-dialog__chip--selected]="isLanguageSelected(lang)"
+                [attr.aria-pressed]="isLanguageSelected(lang)"
+                (click)="toggleLanguage(lang)"
+              >
+                {{ languageLabel(lang) }}
+              </button>
+            }
+          </div>
+        }
+
         @if (languageError(); as error) {
           <span class="analyze-dialog__field-error">{{ error }}</span>
         }

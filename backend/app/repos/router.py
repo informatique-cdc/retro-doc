@@ -7,21 +7,20 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Form, HTTPException, UploadFile, status
 
 from app.auth.dependencies import CurrentUser
-from app.core.language_enum import Language
-from app.repos.dependencies import VerifiedFile, VerifiedRepo
+from app.repos.dependencies import ValidatedLanguages, VerifiedFile, VerifiedRepo
 from app.repos.schemas import (
-    AnalyzeFileResponseModel,
-    FileDocumentationResponseModel,
-    FileGraphsResponseModel,
-    FileResponseModel,
-    FileSourceResponseModel,
-    JoinRepoResponseModel,
-    PipelineStatusResponseModel,
-    RepoDetailResponseModel,
-    RepoFilesResponseModel,
-    RepoListResponseModel,
-    RepoResponseModel,
-    ScopedGraphModel,
+    AnalyzeFileResponse,
+    FileDocumentationResponse,
+    FileGraphsResponse,
+    FileResponse,
+    FileSourceResponse,
+    JoinRepoResponse,
+    PipelineStatusResponse,
+    RepoDetailResponse,
+    RepoFilesResponse,
+    RepoListResponse,
+    RepoResponse,
+    ScopedGraph,
     UpdateUserRepoRequest,
 )
 from app.repos.service import (
@@ -42,11 +41,11 @@ from app.users.dependencies import VerifiedUserRepo
 repos_router = APIRouter(prefix="/repos", tags=["repos"])
 
 
-@repos_router.get("", response_model=RepoListResponseModel)
+@repos_router.get("", response_model=RepoListResponse)
 async def get_repos_endpoint(
     user: CurrentUser,
     search: str | None = None,
-) -> RepoListResponseModel:
+) -> RepoListResponse:
     """Get all repositories belonging to the authenticated user.
 
     Args:
@@ -54,19 +53,19 @@ async def get_repos_endpoint(
         search(str | None): Optional search string to filter repos by name.
 
     Returns:
-        RepoListResponseModel: A list of the user's repositories.
+        RepoListResponse: A list of the user's repositories.
     """
     repos = await get_repos(user, search)
 
-    return RepoListResponseModel(
+    return RepoListResponse(
         repos=[
-            RepoResponseModel(
+            RepoResponse(
                 repo_id=repo.id,  # type: ignore
                 name=user_repo.name,
                 repo_url=repo.repo_url,
                 repo_branch=repo.repo_branch,
                 repo_hash=repo.repo_hash,
-                language=repo.language,
+                languages=repo.languages,
                 color=user_repo.color,
                 created_at=repo.created_at,
                 updated_at=repo.updated_at,
@@ -78,49 +77,50 @@ async def get_repos_endpoint(
 
 @repos_router.post(
     "",
-    response_model=AnalyzeFileResponseModel,
+    response_model=AnalyzeFileResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_repo_endpoint(
     file: UploadFile,
     user: CurrentUser,
+    languages: ValidatedLanguages,
     name: str = Form(description="A custom display name for the repository."),
-    language: Language = Form(description="The programming language to analyze."),
     color: str | None = Form(
         default=None,
         max_length=50,
         description="Optional color for the repository (e.g. #FF5733).",
     ),
-) -> AnalyzeFileResponseModel:
+) -> AnalyzeFileResponse:
     """Create a new repository from a zip file upload.
 
     Args:
         file(UploadFile): The zip file containing the source code.
         user(CurrentUser): The authenticated user (injected by FastAPI).
+        languages(ValidatedLanguages): The languages to analyze, validated
+            against the worker's supported set (empty = all supported).
         name(str): A custom display name for the repository.
-        language(Language): The programming language of the code in the zip file.
         color(str | None): Optional hex color for the repository.
 
     Returns:
-        AnalyzeFileResponseModel: Contains repo_id and status.
+        AnalyzeFileResponse: Contains repo_id and status.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
-    repo_id = await analyze_file(file.filename, file.file, name, language, user, color)
+    repo_id = await analyze_file(file.filename, file.file, name, languages, user, color)
 
-    return AnalyzeFileResponseModel(repo_id=repo_id)
+    return AnalyzeFileResponse(repo_id=repo_id)
 
 
 @repos_router.post(
     "/{repo_id}/join",
-    response_model=JoinRepoResponseModel,
+    response_model=JoinRepoResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def join_repo_endpoint(
     repo_id: PydanticObjectId,
     user: CurrentUser,
-) -> JoinRepoResponseModel:
+) -> JoinRepoResponse:
     """Join an existing repository, adding it to the authenticated user's list.
 
     Args:
@@ -128,18 +128,18 @@ async def join_repo_endpoint(
         user(CurrentUser): The authenticated user (injected by FastAPI).
 
     Returns:
-        JoinRepoResponseModel: The repo ID and copied display name.
+        JoinRepoResponse: The repo ID and copied display name.
     """
     name = await join_repo(repo_id, user)
 
-    return JoinRepoResponseModel(repo_id=repo_id, name=name)
+    return JoinRepoResponse(repo_id=repo_id, name=name)
 
 
-@repos_router.get("/{repo_id}", response_model=RepoDetailResponseModel)
+@repos_router.get("/{repo_id}", response_model=RepoDetailResponse)
 async def get_repo_endpoint(
     user_repo: VerifiedUserRepo,
     repo: VerifiedRepo,
-) -> RepoDetailResponseModel:
+) -> RepoDetailResponse:
     """Get a single repository's details and meta content.
 
     Args:
@@ -149,21 +149,22 @@ async def get_repo_endpoint(
             FastAPI).
 
     Returns:
-        RepoDetailResponseModel: The repository details with meta content.
+        RepoDetailResponse: The repository details with meta content.
     """
     meta = await get_repo_meta(repo.id)  # type: ignore
 
-    return RepoDetailResponseModel(
+    return RepoDetailResponse(
         repo_id=repo.id,  # type: ignore
         name=user_repo.name,
         repo_url=repo.repo_url,
         repo_branch=repo.repo_branch,
         repo_hash=repo.repo_hash,
-        language=repo.language,
+        languages=repo.languages,
         color=user_repo.color,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
         content=meta.content if meta else None,
+        stats=meta.stats if meta else None,
     )
 
 
@@ -183,12 +184,12 @@ async def delete_repo_endpoint(
     await delete_repo(user_repo, repo)
 
 
-@repos_router.patch("/{repo_id}", response_model=RepoResponseModel)
+@repos_router.patch("/{repo_id}", response_model=RepoResponse)
 async def update_user_repo_endpoint(
     request: UpdateUserRepoRequest,
     user_repo: VerifiedUserRepo,
     repo: VerifiedRepo,
-) -> RepoResponseModel:
+) -> RepoResponse:
     """Update the user-specific metadata for a repository.
 
     Args:
@@ -199,19 +200,19 @@ async def update_user_repo_endpoint(
             FastAPI).
 
     Returns:
-        RepoResponseModel: The updated repository.
+        RepoResponse: The updated repository.
     """
     updated = await update_user_repo(
         user_repo, request.color, request.name, request.model_fields_set
     )
 
-    return RepoResponseModel(
+    return RepoResponse(
         repo_id=repo.id,  # type: ignore
         name=updated.name,
         repo_url=repo.repo_url,
         repo_branch=repo.repo_branch,
         repo_hash=repo.repo_hash,
-        language=repo.language,
+        languages=repo.languages,
         color=updated.color,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
@@ -219,13 +220,13 @@ async def update_user_repo_endpoint(
 
 
 @repos_router.get(
-    "/{repo_id}/files/{file_id}/doc", response_model=FileDocumentationResponseModel
+    "/{repo_id}/files/{file_id}/doc", response_model=FileDocumentationResponse
 )
 async def get_file_documentation_endpoint(
     repo_id: PydanticObjectId,
     file_id: PydanticObjectId,
     _file_doc: VerifiedFile,
-) -> FileDocumentationResponseModel:
+) -> FileDocumentationResponse:
     """Get the generated documentation for a specific file in a repository.
 
     Args:
@@ -235,24 +236,22 @@ async def get_file_documentation_endpoint(
             FastAPI).
 
     Returns:
-        FileDocumentationResponseModel: The file's documentation content.
+        FileDocumentationResponse: The file's documentation content.
     """
     documentation = await get_file_documentation(repo_id, file_id)
 
-    return FileDocumentationResponseModel(
+    return FileDocumentationResponse(
         repo_id=repo_id,
         file_id=file_id,
         content=documentation.content,
     )
 
 
-@repos_router.get(
-    "/{repo_id}/files/{file_id}/src", response_model=FileSourceResponseModel
-)
+@repos_router.get("/{repo_id}/files/{file_id}/src", response_model=FileSourceResponse)
 async def get_file_source_endpoint(
     repo: VerifiedRepo,
     file_doc: VerifiedFile,
-) -> FileSourceResponseModel:
+) -> FileSourceResponse:
     """Get the source content of a specific file in a repository.
 
     Args:
@@ -262,11 +261,11 @@ async def get_file_source_endpoint(
             FastAPI).
 
     Returns:
-        FileSourceResponseModel: The file's source content.
+        FileSourceResponse: The file's source content.
     """
     content = await get_file_source(repo, file_doc)
 
-    return FileSourceResponseModel(
+    return FileSourceResponse(
         repo_id=repo.id,  # type: ignore
         file_id=file_doc.id,  # type: ignore
         path=file_doc.path,
@@ -275,13 +274,13 @@ async def get_file_source_endpoint(
 
 
 @repos_router.get(
-    "/{repo_id}/files/{file_id}/graphs", response_model=FileGraphsResponseModel
+    "/{repo_id}/files/{file_id}/graphs", response_model=FileGraphsResponse
 )
 async def get_file_graphs_endpoint(
     repo_id: PydanticObjectId,
     file_id: PydanticObjectId,
     _file_doc: VerifiedFile,
-) -> FileGraphsResponseModel:
+) -> FileGraphsResponse:
     """Get the AST, CFG, and DFG graphs for a specific file in a repository.
 
     Args:
@@ -291,24 +290,24 @@ async def get_file_graphs_endpoint(
             FastAPI).
 
     Returns:
-        FileGraphsResponseModel: The AST, CFG, and DFG graphs of the file.
+        FileGraphsResponse: The AST, CFG, and DFG graphs of the file.
     """
     ast, cfgs, dfgs = await get_file_graphs(repo_id, file_id)
 
-    return FileGraphsResponseModel(
+    return FileGraphsResponse(
         repo_id=repo_id,
         file_id=file_id,
         ast=ast.content if ast else None,
-        cfg=[ScopedGraphModel(scope=c.scope, content=c.content) for c in cfgs],
-        dfg=[ScopedGraphModel(scope=d.scope, content=d.content) for d in dfgs],
+        cfg=[ScopedGraph(scope=c.scope, content=c.content) for c in cfgs],
+        dfg=[ScopedGraph(scope=d.scope, content=d.content) for d in dfgs],
     )
 
 
-@repos_router.get("/{repo_id}/files", response_model=RepoFilesResponseModel)
+@repos_router.get("/{repo_id}/files", response_model=RepoFilesResponse)
 async def get_files_endpoint(
     repo_id: PydanticObjectId,
     _user_repo: VerifiedUserRepo,
-) -> RepoFilesResponseModel:
+) -> RepoFilesResponse:
     """Get all files belonging to a repository.
 
     Args:
@@ -317,14 +316,14 @@ async def get_files_endpoint(
             (injected by FastAPI).
 
     Returns:
-        RepoFilesResponseModel: Contains repo_id and a list of files.
+        RepoFilesResponse: Contains repo_id and a list of files.
     """
     files = await get_files(repo_id)
 
-    return RepoFilesResponseModel(
+    return RepoFilesResponse(
         repo_id=repo_id,
         files=[
-            FileResponseModel(
+            FileResponse(
                 file_id=f.id,  # type: ignore
                 path=f.path,
                 file_hash=f.file_hash,
@@ -336,13 +335,13 @@ async def get_files_endpoint(
 
 @repos_router.get(
     "/{repo_id}/pipeline",
-    response_model=PipelineStatusResponseModel,
+    response_model=PipelineStatusResponse,
     response_model_exclude_none=True,
 )
 async def get_repo_pipeline_endpoint(
     repo_id: PydanticObjectId,
     _user_repo: VerifiedUserRepo,
-) -> PipelineStatusResponseModel:
+) -> PipelineStatusResponse:
     """Get the status of a repository's pipeline run.
 
     Args:
@@ -351,11 +350,11 @@ async def get_repo_pipeline_endpoint(
             (injected by FastAPI).
 
     Returns:
-        PipelineStatusResponseModel: Contains repo_id, status and optional meta information.
+        PipelineStatusResponse: Contains repo_id, status and optional meta information.
     """
     pipeline_run = await get_pipeline(repo_id)
 
-    return PipelineStatusResponseModel(
+    return PipelineStatusResponse(
         repo_id=repo_id,
         status=pipeline_run.status,
         meta=pipeline_run.meta,

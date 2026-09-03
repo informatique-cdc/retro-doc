@@ -29,7 +29,8 @@
     "projectName": "Name",
     "placeholder": "Add a name for your project",
     "language": "Programming Language",
-    "selectLang": "Select a language",
+    "autoDetectLang": "Automatically detect language",
+    "selectLanguages": "Select languages to analyze",
     "projectColor": "Project color",
     "projectFiles": "Project Files",
     "dropzoneText": "Drag and drop a .zip file or click to browse",
@@ -37,7 +38,7 @@
     "uploading": "Uploading...",
     "startAnalysis": "Start Analysis",
     "nameRequired": "Project name is required.",
-    "langRequired": "Please select a programming language.",
+    "langRequired": "Please select at least one language.",
     "fileRequired": "Please upload a zip file.",
     "uploadFailed": "Upload failed. Please try again.",
     "comingSoon": "Coming soon"
@@ -47,7 +48,15 @@
     "subtitle": "Change the name and color of your project",
     "save": "Save",
     "saving": "Saving...",
-    "saveFailed": "Failed to save. Please try again."
+    "saveFailed": "Failed to save. Please try again.",
+    "delete": "Delete Project",
+    "deleting": "Deleting...",
+    "deleteTitle": "Delete Project",
+    "deleteSubtitle": "This action cannot be undone",
+    "deleteWarning": "Are you sure you want to delete \"{{name}}\"? It will be permanently removed from your projects.",
+    "deleteCancel": "Cancel",
+    "deleteConfirm": "Delete",
+    "deleteFailed": "Failed to delete. Please try again."
   },
   "project": {
     "startAnalysis": "Start Analysis",
@@ -62,9 +71,11 @@
     "readme": "README",
     "loadingLabel": "Loading project details",
     "repository": "{{lang}} repository",
+    "repositoryGeneric": "Repository",
     "share": "Share",
     "shareLabel": "Copy shareable link to clipboard",
     "linkCopied": "Link Copied!",
+    "otherLanguages": "Other",
     "comingSoon": "Coming soon"
   },
   "import": {
@@ -81,7 +92,6 @@
     "noConversations": "No conversations yet",
     "historyEmpty": "Your analysis history will appear here once you start exploring your code.",
     "files": "Files",
-    "linesOfCode": "Lines of Code",
     "branches": "Branches",
     "contributors": "Contributors",
     "developer": "Developer",
@@ -169,12 +179,24 @@
     "loadFailed": "Failed to load graph data. Please try again.",
     "noFileSelected": "No file selected. Select a file to explore its graph.",
     "graphDescription": "{{type}} graph for {{fileName}}. {{count}} nodes visible.",
+    "legacyFormat": "This project was analyzed with an older graph format. A newer version is available - re-upload it as a new project to regenerate the graphs.",
+    "viewSource": "View source",
+    "viewDocumentation": "View documentation",
     "fileTree": {
       "searchLabel": "Search files",
       "searchPlaceholder": "Filter files...",
       "treeLabel": "Project files",
       "noResults": "No files match your search"
     }
+  },
+  "fileSourceViewer": {
+    "title": "Source code",
+    "documentationTitle": "Documentation",
+    "close": "Close",
+    "resize": "Resize panel",
+    "loading": "Loading source...",
+    "loadFailed": "Failed to load file source. Please try again.",
+    "docLoadFailed": "Failed to load documentation. Please try again."
   },
   "timeAgo": {
     "justNow": "just now",

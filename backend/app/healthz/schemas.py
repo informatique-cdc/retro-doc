@@ -8,5 +8,5 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class HealthzResponseModel(BaseModel):
+class HealthzResponse(BaseModel):
     status: Literal["up", "down"]

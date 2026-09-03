@@ -12,7 +12,9 @@ export type {
   DeepAnalysisDetail,
   DeepAnalysisListResponse,
   DeepAnalysisStatus,
+  FileDocumentationResponse,
   FileGraphsResponse,
+  FileSourceResponse,
   ImportRepoResponse,
   Language,
   PipelineStatus,
@@ -23,6 +25,7 @@ export type {
   RepoFilesResponse,
   RepoListResponse,
   ScopedGraph,
+  SupportedLanguagesResponse,
   ToolStatus,
   UpdateUserRepoRequest,
 } from './api.models';

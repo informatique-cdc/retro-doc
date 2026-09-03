@@ -9,8 +9,6 @@ from beanie import Document, PydanticObjectId
 from pydantic import Field
 from pymongo import IndexModel
 
-from app.core.language_enum import Language
-
 
 class RepoDocument(Document):
     repo_url: str | None = None
@@ -18,12 +16,12 @@ class RepoDocument(Document):
     repo_hash: str | None = None
     blob_path: str
     user_count: int = 1
-    language: Language
+    languages: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Settings:
-        name = "repositories"
+        name = "repos"
         keep_nulls = False
 
 

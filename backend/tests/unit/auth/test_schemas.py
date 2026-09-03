@@ -52,3 +52,13 @@ def test_uid_is_deterministic(payload: dict[str, Any]) -> None:
     b = User(**payload)
 
     assert a.uid == b.uid
+
+
+def test_provided_uid_is_trusted(payload: dict[str, Any]) -> None:
+    """An explicitly provided uid is preserved, not recomputed.
+
+    This is what lets an app-issued token carry the original uid forward.
+    """
+    user = User(**{**payload, "uid": "explicit-uid"})
+
+    assert user.uid == "explicit-uid"

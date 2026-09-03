@@ -10,7 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.core.language_enum import Language
 from app.pipeline.models import PipelineRunDocument, PipelineStatus
 from app.pipeline.service import start_orchestration
 
@@ -26,7 +25,7 @@ async def test_connect_error_marks_run_as_failed(
 ) -> None:
     """On connection error, the `PipelineRunDocument` status is set to `FAILED` in the database."""
     with pytest.raises(HTTPException) as exc_info:
-        await start_orchestration(blob_path, Language.JAVA, persisted_pipeline_run_doc)
+        await start_orchestration(blob_path, ["java"], persisted_pipeline_run_doc)
 
     assert exc_info.value.status_code == 502
 
@@ -42,7 +41,7 @@ async def test_missing_id_key_raises_502(
 ) -> None:
     """Response JSON missing the `id` key produces HTTP 502 and marks run as failed."""
     with pytest.raises(HTTPException) as exc_info:
-        await start_orchestration(blob_path, Language.JAVA, mock_pipeline_run_doc)
+        await start_orchestration(blob_path, ["java"], mock_pipeline_run_doc)
 
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail == "Failed to start the analysis pipeline."
@@ -57,8 +56,27 @@ async def test_success_preserves_pending_status(
     blob_path: str,
 ) -> None:
     """On success, the `PipelineRunDocument` status remains `PENDING` in the database."""
-    await start_orchestration(blob_path, Language.JAVA, persisted_pipeline_run_doc)
+    await start_orchestration(blob_path, ["java"], persisted_pipeline_run_doc)
 
     refreshed = await PipelineRunDocument.get(persisted_pipeline_run_doc.id)
     assert refreshed is not None
     assert refreshed.status == PipelineStatus.PENDING
+
+
+async def test_unprocessable_notifies_unsupported_languages(
+    mock_httpx_unprocessable: Any,
+    persisted_pipeline_run_doc: PipelineRunDocument,
+    blob_path: str,
+) -> None:
+    """A worker 422 (rejected languages) yields HTTP 422 with a clear message and FAILED meta."""
+    with pytest.raises(HTTPException) as exc_info:
+        await start_orchestration(blob_path, ["cobol"], persisted_pipeline_run_doc)
+
+    assert exc_info.value.status_code == 422
+    assert "languages" in exc_info.value.detail.lower()
+
+    refreshed = await PipelineRunDocument.get(persisted_pipeline_run_doc.id)
+    assert refreshed is not None
+    assert refreshed.status == PipelineStatus.FAILED
+    assert refreshed.meta is not None
+    assert "languages" in refreshed.meta.message.lower()

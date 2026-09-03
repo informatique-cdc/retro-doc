@@ -59,7 +59,66 @@
               </button>
             }
           </div>
+
+          <button
+            type="button"
+            class="graph-explorer__source-toggle"
+            [disabled]="!selectedFileId()"
+            (click)="openSource()"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="m8 6-6 6 6 6M16 6l6 6-6 6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ 'graphExplorer.viewSource' | translate }}
+          </button>
+
+          @if (docAvailable()) {
+            <button
+              type="button"
+              class="graph-explorer__doc-btn"
+              [title]="'graphExplorer.viewDocumentation' | translate"
+              [attr.aria-label]="'graphExplorer.viewDocumentation' | translate"
+              (click)="openDoc()"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M14 3v5h5M9 13h6M9 17h6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          }
         </div>
+
+        @if (legacyFormat()) {
+          <div class="graph-explorer__warning" role="status">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <p>{{ 'graphExplorer.legacyFormat' | translate }}</p>
+          </div>
+        }
 
         @if (availableScopes().length > 1) {
           <div class="graph-explorer__scope-bar">
@@ -70,8 +129,8 @@
               [value]="selectedScope() ?? ''"
               (change)="onScopeChange($any($event.target).value)"
             >
-              @for (scope of availableScopes(); track scope) {
-                <option [value]="scope">{{ scope }}</option>
+              @for (scope of availableScopes(); track scope.value) {
+                <option [value]="scope.value" [title]="scope.value">{{ scope.label }}</option>
               }
             </select>
           </div>
@@ -115,6 +174,17 @@
         </div>
       </div>
     </div>
+
+    @if (activePanel(); as panel) {
+      @if (selectedFileId(); as fileId) {
+        <app-file-source-viewer
+          [repoId]="repoId()"
+          [fileId]="fileId"
+          [mode]="panel"
+          (closed)="onPanelClosed()"
+        />
+      }
+    }
 
     <footer class="graph-explorer__footer">
       <span class="graph-explorer__node-count">

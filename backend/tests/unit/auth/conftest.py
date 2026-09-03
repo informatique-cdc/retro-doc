@@ -1,6 +1,6 @@
 """Unit test configuration for auth.
 
-This module provides fixtures for auth dependency tests,
+This module provides fixtures for auth provider tests,
 including JWKS cache management and HTTP mocking.
 """
 
@@ -10,19 +10,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.auth import dependencies as deps
+from app.auth import oidc
+from app.auth.schemas import TokenClaims
 
 
 @pytest.fixture(autouse=True)
 def _reset_jwks_cache() -> Any:
     """Save and restore the module-level JWKS cache around each test."""
-    old_keys = deps._jwks_cache["keys"]
-    old_exp = deps._jwks_cache["expires_at"]
-    deps._jwks_cache["keys"] = None
-    deps._jwks_cache["expires_at"] = 0
+    old_keys = oidc._jwks_cache["keys"]
+    old_exp = oidc._jwks_cache["expires_at"]
+    oidc._jwks_cache["keys"] = None
+    oidc._jwks_cache["expires_at"] = 0
     yield
-    deps._jwks_cache["keys"] = old_keys
-    deps._jwks_cache["expires_at"] = old_exp
+    oidc._jwks_cache["keys"] = old_keys
+    oidc._jwks_cache["expires_at"] = old_exp
 
 
 @pytest.fixture
@@ -45,3 +46,16 @@ def mock_httpx(mock_jwks_data: dict[str, Any]) -> Any:
 
     with patch.object(httpx, "AsyncClient", return_value=mock_client):
         yield mock_client
+
+
+@pytest.fixture
+def token_claims() -> TokenClaims:
+    """Identity claims for issuing app tokens, matching the `payload` fixture."""
+    return TokenClaims(
+        uid="stable-user-uid",
+        sub="test-subject-id",
+        name="Test User",
+        preferred_username="testuser",
+        oid="00000000-0000-0000-0000-000000000001",
+        tid="00000000-0000-0000-0000-000000000002",
+    )

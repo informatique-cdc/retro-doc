@@ -10,11 +10,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { UiButton, UiDropzone, UiInput } from '@design-system';
-import { Language, RepoService, RepoStore } from '../../../core/api';
+import { RepoService, RepoStore } from '../../../core/api';
 
 type UploadMethod = 'git' | 'zip';
 
@@ -31,6 +31,13 @@ interface ColorOption {
   value: string;
   label: string;
 }
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  java: 'Java',
+  python: 'Python',
+  typescript: 'TypeScript',
+  cobol: 'COBOL',
+};
 
 const PROJECT_COLORS: ColorOption[] = [
   { value: '#3B82F6', label: 'Blue' },
@@ -66,7 +73,11 @@ export class AnalyzeDialog implements AfterViewInit {
 
   protected readonly uploadMethod = signal<UploadMethod>('zip');
   protected readonly projectName = signal('');
-  protected readonly language = signal<Language | ''>('');
+  protected readonly autoDetect = signal(true);
+  protected readonly selectedLanguages = signal<string[]>([]);
+  protected readonly availableLanguages = toSignal(this.repoService.getSupportedLanguages(), {
+    initialValue: [] as string[],
+  });
   protected readonly gitUrl = signal('');
   protected readonly selectedColor = signal(PROJECT_COLORS[0].value);
   protected readonly selectedFile = signal<File | null>(null);
@@ -82,8 +93,8 @@ export class AnalyzeDialog implements AfterViewInit {
       : '';
   });
   protected readonly languageError = computed(() => {
-    if (!this.submitted()) return '';
-    return this.language() === ''
+    if (!this.submitted() || this.autoDetect()) return '';
+    return this.selectedLanguages().length === 0
       ? this.translateService.instant('analyzeDialog.langRequired')
       : '';
   });
@@ -104,8 +115,9 @@ export class AnalyzeDialog implements AfterViewInit {
   protected readonly serverError = signal<string | null>(null);
 
   protected readonly canSubmit = computed(() => {
+    const languageChosen = this.autoDetect() || this.selectedLanguages().length > 0;
     const baseFilled =
-      this.projectName().trim() !== '' && this.language() !== '' && !this.loading();
+      this.projectName().trim() !== '' && languageChosen && !this.loading();
 
     if (this.uploadMethod() === 'git') {
       return baseFilled && this.gitUrl().trim() !== '';
@@ -113,12 +125,9 @@ export class AnalyzeDialog implements AfterViewInit {
     return baseFilled && this.selectedFile() !== null;
   });
 
-  protected readonly languageOptions = [
-    { value: 'java', label: 'Java', enabled: true },
-    { value: 'python', label: 'Python', enabled: false },
-    { value: 'typescript', label: 'TypeScript', enabled: false },
-    { value: 'cobol', label: 'COBOL', enabled: false },
-  ];
+  protected languageLabel(code: string): string {
+    return LANGUAGE_LABELS[code] ?? code.charAt(0).toUpperCase() + code.slice(1);
+  }
 
   ngAfterViewInit(): void {
     this.dialogRef().nativeElement.showModal();
@@ -152,9 +161,21 @@ export class AnalyzeDialog implements AfterViewInit {
     this.gitUrl.set(value);
   }
 
-  protected onLanguageChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    this.language.set(value as Language);
+  protected toggleAutoDetect(): void {
+    this.autoDetect.update((value) => !value);
+    if (this.autoDetect()) {
+      this.selectedLanguages.set([]);
+    }
+  }
+
+  protected isLanguageSelected(code: string): boolean {
+    return this.selectedLanguages().includes(code);
+  }
+
+  protected toggleLanguage(code: string): void {
+    this.selectedLanguages.update((langs) =>
+      langs.includes(code) ? langs.filter((l) => l !== code) : [...langs, code]
+    );
   }
 
   protected selectColor(color: string): void {
@@ -183,7 +204,7 @@ export class AnalyzeDialog implements AfterViewInit {
     if (!this.canSubmit()) return;
 
     const name = this.projectName().trim();
-    const lang = this.language() as Language;
+    const languages = this.autoDetect() ? [] : this.selectedLanguages();
 
     this.loading.set(true);
 
@@ -191,8 +212,8 @@ export class AnalyzeDialog implements AfterViewInit {
 
     const request$ =
       this.uploadMethod() === 'git'
-        ? this.repoService.analyzeGitUrl(this.gitUrl().trim(), name, lang, color)
-        : this.repoService.analyzeFile(this.selectedFile()!, name, lang, color);
+        ? this.repoService.analyzeGitUrl(this.gitUrl().trim(), name, languages, color)
+        : this.repoService.analyzeFile(this.selectedFile()!, name, languages, color);
 
     request$
       .pipe(

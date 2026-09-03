@@ -19,16 +19,26 @@ import cytoscapeDagre from 'cytoscape-dagre';
 import { finalize } from 'rxjs';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { FileGraphsResponse, RepoFile, RepoService } from '../../../core/api';
-import { GraphType } from './graph-explorer.model';
+import {
+  convertAstToElements,
+  convertScopedGraphToElements,
+  formatScopeLabel,
+  GraphType,
+  isLegacyGraphData,
+} from './graph-explorer.model';
 import { FileTree } from './file-tree/file-tree';
 import { buildFileTree } from './file-tree/file-tree.model';
+import {
+  FileContentMode,
+  FileSourceViewer,
+} from '../../../shared/file-source-viewer/file-source-viewer';
 
 cytoscape.use(cytoscapeDagre);
 
 @Component({
   selector: 'app-graph-explorer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [UpperCasePipe, TranslateModule, FileTree],
+  imports: [UpperCasePipe, TranslateModule, FileTree, FileSourceViewer],
   templateUrl: './graph-explorer.html',
   styleUrl: './graph-explorer.scss',
 })
@@ -56,14 +66,25 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
   protected readonly visibleNodeCount = signal(0);
   protected readonly selectedNodeLabel = signal<string | null>(null);
 
+  protected readonly activePanel = signal<FileContentMode | null>(null);
+  protected readonly docAvailable = signal(false);
+
   protected readonly fileTree = computed(() => buildFileTree(this.files()));
+
+  protected readonly legacyFormat = computed(() => {
+    const data = this.graphData();
+    return data ? isLegacyGraphData(data) : false;
+  });
 
   protected readonly availableScopes = computed(() => {
     const data = this.graphData();
     const type = this.selectedGraphType();
     if (!data || type === 'ast') return [];
     const graphs = type === 'cfg' ? data.cfg : data.dfg;
-    return graphs.map((g) => g.scope ?? '(global)');
+    return graphs.map((g) => ({
+      value: g.scope ?? '(global)',
+      label: formatScopeLabel(g.scope),
+    }));
   });
 
   protected readonly selectedFileName = computed(() => {
@@ -114,6 +135,8 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
   protected onFileSelect(fileId: string): void {
     if (!fileId) return;
     this.selectedFileId.set(fileId);
+    this.activePanel.set(null);
+    this.docAvailable.set(false);
     this.loading.set(true);
     this.error.set(null);
     this.graphData.set(null);
@@ -134,6 +157,30 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
           this.error.set(this.translateService.instant('graphExplorer.loadFailed'));
         },
       });
+
+    this.repoService
+      .getFileDoc(this.repoId(), fileId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (doc) => this.docAvailable.set(doc.content.trim().length > 0),
+        error: () => this.docAvailable.set(false),
+      });
+  }
+
+  protected openSource(): void {
+    if (this.selectedFileId()) {
+      this.activePanel.set('source');
+    }
+  }
+
+  protected openDoc(): void {
+    if (this.selectedFileId() && this.docAvailable()) {
+      this.activePanel.set('documentation');
+    }
+  }
+
+  protected onPanelClosed(): void {
+    this.activePanel.set(null);
   }
 
   protected onGraphTypeChange(type: GraphType): void {
@@ -194,7 +241,7 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
     let elements: { nodes: cytoscape.ElementDefinition[]; edges: cytoscape.ElementDefinition[] };
 
     if (type === 'ast') {
-      elements = data.ast ? this.convertAstToElements(data.ast) : { nodes: [], edges: [] };
+      elements = data.ast ? convertAstToElements(data.ast) : { nodes: [], edges: [] };
     } else {
       const graphs = type === 'cfg' ? data.cfg : data.dfg;
       const scopeLabel = this.selectedScope();
@@ -202,9 +249,7 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
         ? graphs.findIndex((g) => (g.scope ?? '(global)') === scopeLabel)
         : 0;
       const graph = graphs[scopeIndex >= 0 ? scopeIndex : 0];
-      elements = graph
-        ? this.convertScopedGraphToElements(graph.content)
-        : { nodes: [], edges: [] };
+      elements = graph ? convertScopedGraphToElements(graph.content) : { nodes: [], edges: [] };
 
       if (!scopeLabel && graphs.length > 0) {
         this.selectedScope.set(graphs[0]?.scope ?? '(global)');
@@ -215,140 +260,6 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
     this.cy.add([...elements.nodes, ...elements.edges]);
     this.cy.layout(this.getLayoutOptions(type)).run();
     this.visibleNodeCount.set(this.cy.nodes().length);
-  }
-
-  private convertAstToElements(ast: Record<string, unknown>): {
-    nodes: cytoscape.ElementDefinition[];
-    edges: cytoscape.ElementDefinition[];
-  } {
-    const nodes: cytoscape.ElementDefinition[] = [];
-    const edges: cytoscape.ElementDefinition[] = [];
-    let counter = 0;
-
-    const addNode = (label: string, nodeType: string, parentId?: string): string => {
-      const id = `ast-${counter++}`;
-      nodes.push({ data: { id, label, nodeType } });
-      if (parentId) {
-        edges.push({ data: { id: `${parentId}->${id}`, source: parentId, target: id } });
-      }
-      return id;
-    };
-
-    // Root: file node
-    const fileName = (ast['file'] as string) ?? 'file';
-    const rootId = addNode(fileName.split('/').pop() ?? fileName, 'file');
-
-    // Package
-    const pkg = ast['package'] as string | undefined;
-    if (pkg) {
-      addNode(pkg, 'package', rootId);
-    }
-
-    // Imports
-    const imports = ast['imports'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(imports) && imports.length > 0) {
-      const importsGroupId = addNode(`imports (${imports.length})`, 'group', rootId);
-      for (const imp of imports) {
-        const path = (imp['path'] as string) ?? '';
-        addNode(path.split('.').pop() ?? path, 'import', importsGroupId);
-      }
-    }
-
-    // Classes
-    const classes = ast['classes'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(classes)) {
-      for (const cls of classes) {
-        const className = (cls['name'] as string) ?? 'class';
-        const classId = addNode(className, 'class', rootId);
-
-        // Fields
-        const fields = cls['fields'] as Record<string, unknown>[] | undefined;
-        if (Array.isArray(fields)) {
-          for (const field of fields) {
-            const fname = (field['name'] as string) ?? '';
-            const ftype = (field['type'] as string) ?? '';
-            addNode(`${fname}: ${ftype}`, 'field', classId);
-          }
-        }
-
-        // Methods
-        const methods = cls['methods'] as Record<string, unknown>[] | undefined;
-        if (Array.isArray(methods)) {
-          for (const method of methods) {
-            const mname = (method['name'] as string) ?? '';
-            const mreturn = (method['return_type'] as string) ?? '';
-            addNode(`${mname}(): ${mreturn}`, 'method', classId);
-          }
-        }
-      }
-    }
-
-    // Interfaces
-    const interfaces = ast['interfaces'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(interfaces)) {
-      for (const iface of interfaces) {
-        const ifaceName = (iface['name'] as string) ?? 'interface';
-        const ifaceId = addNode(ifaceName, 'interface', rootId);
-
-        const methods = iface['methods'] as Record<string, unknown>[] | undefined;
-        if (Array.isArray(methods)) {
-          for (const method of methods) {
-            const mname = (method['name'] as string) ?? '';
-            const mreturn = (method['return_type'] as string) ?? '';
-            addNode(`${mname}(): ${mreturn}`, 'method', ifaceId);
-          }
-        }
-      }
-    }
-
-    // Enums
-    const enums = ast['enums'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(enums)) {
-      for (const en of enums) {
-        addNode((en['name'] as string) ?? 'enum', 'enum', rootId);
-      }
-    }
-
-    return { nodes, edges };
-  }
-
-  private convertScopedGraphToElements(content: Record<string, unknown>): {
-    nodes: cytoscape.ElementDefinition[];
-    edges: cytoscape.ElementDefinition[];
-  } {
-    const rawNodes = (content['nodes'] as Record<string, unknown>[]) ?? [];
-    const rawEdges = (content['edges'] as Record<string, unknown>[]) ?? [];
-
-    const nodeIds = new Set(rawNodes.map((n) => String(n['id'])));
-
-    const nodes = rawNodes.map((n) => ({
-      data: {
-        id: String(n['id']),
-        label: String(n['label'] ?? n['variable'] ?? n['name'] ?? n['id']),
-        nodeType: String(n['type'] ?? ''),
-      },
-    }));
-
-    const edges = rawEdges
-      .filter((e) => {
-        const source = String(e['from'] ?? e['source']);
-        const target = String(e['to'] ?? e['target']);
-        return nodeIds.has(source) && nodeIds.has(target);
-      })
-      .map((e, i) => {
-        const source = String(e['from'] ?? e['source']);
-        const target = String(e['to'] ?? e['target']);
-        return {
-          data: {
-            id: `e-${source}-${target}-${i}`,
-            source,
-            target,
-            label: String(e['label'] ?? e['type'] ?? ''),
-          },
-        };
-      });
-
-    return { nodes, edges };
   }
 
   private getCytoscapeStyles(): cytoscape.StylesheetStyle[] {
@@ -390,7 +301,7 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
         } as cytoscape.Css.Node,
       },
       {
-        selector: 'node[nodeType="condition"]',
+        selector: 'node[nodeType="branch"]',
         style: {
           'background-color': '#fef9c3',
           'border-color': '#fde047',
@@ -418,6 +329,15 @@ export class GraphExplorer implements AfterViewInit, OnDestroy {
         style: {
           'background-color': '#fce7f3',
           'border-color': '#f9a8d4',
+        } as cytoscape.Css.Node,
+      },
+      {
+        selector: 'node[nodeType="statement"]',
+        style: {
+          'background-color': '#f1f5f9',
+          'border-color': '#cbd5e1',
+          color: '#475569',
+          'font-size': '12px',
         } as cytoscape.Css.Node,
       },
       {
