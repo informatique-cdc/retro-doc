@@ -37,6 +37,7 @@ class ChatThreadListResponse(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
+    id: PydanticObjectId
     role: str
     content: str
     sources: list[dict[str, str]] | None = None
@@ -45,6 +46,7 @@ class ChatMessageResponse(BaseModel):
 class ChatThreadMessagesResponse(BaseModel):
     chat_id: PydanticObjectId
     messages: list[ChatMessageResponse]
+    next_cursor: PydanticObjectId | None = None
 
 
 class UpdateChatTitleRequest(BaseModel):

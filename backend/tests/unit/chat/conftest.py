@@ -5,8 +5,9 @@ database-backed fixtures (via mongomock) for persistence tests,
 and LangChain fake fixtures for testing agent logic without API calls.
 """
 
-from collections.abc import Callable
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable, Generator
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,9 +18,26 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
+from app.auth.dependencies import get_current_user
 from app.auth.schemas import User
+from app.chat.dependencies import get_verified_chat_thread
 from app.chat.models import ChatMessageDocument, ChatThreadDocument
 from app.chat.schemas import ChatContext
+
+
+@pytest.fixture
+def _override_deps(
+    mock_client: Any,
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+) -> Generator[None, None, None]:
+    """Override FastAPI dependencies for chat HTTP tests."""
+    from app.main import app
+
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_verified_chat_thread] = lambda: persisted_thread_doc
+    yield
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -116,6 +134,35 @@ async def persisted_message_docs(
     await human.insert()
     await ai.insert()
     return [human, ai]
+
+
+@pytest.fixture
+def persist_messages() -> Callable[..., Awaitable[list[ChatMessageDocument]]]:
+    """Factory that persists `count` alternating messages in mongomock.
+
+    Messages are given strictly increasing `created_at` values one second
+    apart so ordering assertions are deterministic.
+    """
+
+    async def _factory(
+        thread_id: PydanticObjectId,
+        count: int,
+        start: datetime | None = None,
+    ) -> list[ChatMessageDocument]:
+        base = start or datetime(2025, 1, 1, tzinfo=timezone.utc)
+        docs = []
+        for index in range(count):
+            doc = ChatMessageDocument(
+                thread_id=thread_id,
+                role="human" if index % 2 == 0 else "ai",
+                content=f"Message {index}",
+                created_at=base + timedelta(seconds=index),
+            )
+            await doc.insert()
+            docs.append(doc)
+        return docs
+
+    return _factory
 
 
 @pytest.fixture

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from beanie import PydanticObjectId
+from fastapi import HTTPException
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
@@ -518,23 +519,190 @@ async def test_get_thread_messages_chronological(
     persisted_message_docs: list[ChatMessageDocument],
 ) -> None:
     """Returns messages in chronological order."""
-    result = await get_thread_messages(persisted_thread_doc)
+    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
-    assert len(result) == 2
-    assert isinstance(result[0], ChatMessageResponse)
-    assert result[0].role == "human"
-    assert result[0].content == "Hello"
-    assert result[1].role == "ai"
-    assert result[1].content == "Hi there!"
+    assert len(messages) == 2
+    assert isinstance(messages[0], ChatMessageResponse)
+    assert messages[0].role == "human"
+    assert messages[0].content == "Hello"
+    assert messages[1].role == "ai"
+    assert messages[1].content == "Hi there!"
+    assert next_cursor is None
 
 
 async def test_get_thread_messages_empty(
     persisted_thread_doc: ChatThreadDocument,
 ) -> None:
-    """Returns an empty list when no messages exist."""
-    result = await get_thread_messages(persisted_thread_doc)
+    """Returns an empty page when no messages exist."""
+    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
-    assert result == []
+    assert messages == []
+    assert next_cursor is None
+
+
+async def test_get_thread_messages_returns_newest_page(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """Without a cursor, the most recent `limit` messages are returned."""
+    await persist_messages(persisted_thread_doc.id, 10)
+
+    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+
+    assert [m.content for m in messages] == ["Message 7", "Message 8", "Message 9"]
+    assert next_cursor == messages[0].id
+
+
+async def test_get_thread_messages_no_cursor_at_boundary(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """No cursor is returned when the page exactly covers the history."""
+    await persist_messages(persisted_thread_doc.id, 3)
+
+    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+
+    assert len(messages) == 3
+    assert next_cursor is None
+
+
+async def test_get_thread_messages_before_returns_older_page(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """`before` returns the strictly older page, with no overlap."""
+    await persist_messages(persisted_thread_doc.id, 10)
+
+    first, cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+    second, next_cursor = await get_thread_messages(
+        persisted_thread_doc, limit=3, before=cursor
+    )
+
+    assert [m.content for m in second] == ["Message 4", "Message 5", "Message 6"]
+    assert next_cursor is not None
+    assert {m.id for m in second}.isdisjoint({m.id for m in first})
+
+
+async def test_get_thread_messages_walking_cursors_covers_history(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """Walking cursors to exhaustion yields every message exactly once."""
+    await persist_messages(persisted_thread_doc.id, 10)
+
+    collected: list[ChatMessageResponse] = []
+    cursor: PydanticObjectId | None = None
+    while True:
+        page, cursor = await get_thread_messages(
+            persisted_thread_doc, limit=3, before=cursor
+        )
+        collected = page + collected
+        if cursor is None:
+            break
+
+    assert [m.content for m in collected] == [f"Message {i}" for i in range(10)]
+    assert len({m.id for m in collected}) == 10
+
+
+async def test_get_thread_messages_paginates_across_identical_timestamps(
+    persisted_thread_doc: ChatThreadDocument,
+) -> None:
+    """Messages sharing a `created_at` are not skipped or repeated.
+
+    `_persist_turn` writes both messages of a turn back-to-back, so ties are
+    routine; the keyset is on `_id`, which cannot tie.
+    """
+    same_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    for index in range(4):
+        await ChatMessageDocument(
+            thread_id=persisted_thread_doc.id,
+            role="human" if index % 2 == 0 else "ai",
+            content=f"Message {index}",
+            created_at=same_time,
+        ).insert()
+
+    collected: list[ChatMessageResponse] = []
+    cursor: PydanticObjectId | None = None
+    while True:
+        page, cursor = await get_thread_messages(
+            persisted_thread_doc, limit=2, before=cursor
+        )
+        collected = page + collected
+        if cursor is None:
+            break
+
+    assert [m.content for m in collected] == [f"Message {i}" for i in range(4)]
+
+
+async def test_get_thread_messages_orders_by_insertion_not_timestamp(
+    persisted_thread_doc: ChatThreadDocument,
+) -> None:
+    """A skewed `created_at` cannot reorder a thread; insertion order wins.
+
+    The sort is deliberately single-field on `_id`. Azure Cosmos DB can only
+    serve a multi-field sort from a composite index matching it exactly, and
+    rejects the query outright otherwise.
+    """
+    for index, created_at in enumerate(
+        (
+            datetime(2025, 1, 2, tzinfo=timezone.utc),
+            datetime(2025, 1, 1, tzinfo=timezone.utc),
+        )
+    ):
+        await ChatMessageDocument(
+            thread_id=persisted_thread_doc.id,
+            role="human" if index % 2 == 0 else "ai",
+            content=f"Message {index}",
+            created_at=created_at,
+        ).insert()
+
+    page, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert [m.content for m in page] == ["Message 0", "Message 1"]
+    assert next_cursor is None
+
+
+async def test_get_thread_messages_excludes_other_threads(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """Only messages of the requested thread are returned."""
+    await persist_messages(persisted_thread_doc.id, 2)
+    await persist_messages(PydanticObjectId(), 5)
+
+    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert len(messages) == 2
+    assert next_cursor is None
+
+
+async def test_get_thread_messages_unknown_cursor_raises_422(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """An unknown cursor is rejected with 422."""
+    await persist_messages(persisted_thread_doc.id, 2)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_thread_messages(
+            persisted_thread_doc, limit=10, before=PydanticObjectId()
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+async def test_get_thread_messages_foreign_cursor_raises_422(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Callable[..., Any],
+) -> None:
+    """A cursor belonging to another thread is rejected with 422."""
+    await persist_messages(persisted_thread_doc.id, 2)
+    foreign = await persist_messages(PydanticObjectId(), 2)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_thread_messages(persisted_thread_doc, limit=10, before=foreign[0].id)
+
+    assert exc_info.value.status_code == 422
 
 
 # ---------------------------------------------------------------------------

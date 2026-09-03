@@ -8,10 +8,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.auth.dependencies import CurrentUser
+from app.chat.config import chat_settings
 from app.chat.dependencies import ChatRepoAccess, VerifiedChatThread
 from app.chat.llm import close_agent_resources, init_agent_resources
 from app.chat.schemas import (
@@ -125,24 +126,38 @@ async def delete_chat_endpoint(
 )
 async def get_chat_messages_endpoint(
     thread: VerifiedChatThread,
+    limit: int = Query(
+        default=chat_settings.MESSAGES_PAGE_SIZE,
+        ge=1,
+        le=chat_settings.MESSAGES_MAX_PAGE_SIZE,
+    ),
+    before: PydanticObjectId | None = None,
 ) -> ChatThreadMessagesResponse:
-    """Retrieve the conversation history for a chat thread.
+    """Retrieve one page of the conversation history for a chat thread.
 
-    Returns all user and assistant messages in chronological order.
-    System messages are excluded.
+    Returns the most recent `limit` user and assistant messages in
+    chronological order. System messages are excluded. Paging runs from
+    newest to oldest: pass the previous response's `next_cursor` as
+    `before` to fetch the next page, one step further into the past.
 
     Args:
         thread(VerifiedChatThread): The verified chat thread document
             (injected by FastAPI).
+        limit(int): Maximum number of messages to return.
+        before(PydanticObjectId | None): Optional message ID to page back
+            from. Only messages strictly older than it are returned.
 
     Returns:
-        ChatThreadMessagesResponse: The thread's message history.
+        ChatThreadMessagesResponse: A page of the thread's message history,
+            with the `next_cursor` to pass as `before` on the next call.
+            The cursor is absent once the history is exhausted.
     """
-    messages = await get_thread_messages(thread)
+    messages, next_cursor = await get_thread_messages(thread, limit, before)
 
     return ChatThreadMessagesResponse(
         chat_id=thread.id,  # type: ignore
         messages=messages,
+        next_cursor=next_cursor,
     )
 
 

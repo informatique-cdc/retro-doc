@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from beanie import PydanticObjectId
+from fastapi import HTTPException, status
 from fastapi.sse import ServerSentEvent
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import RunnableConfig
@@ -347,30 +348,77 @@ async def generate_title(thread: ChatThreadDocument, message: str) -> str:
 
 async def get_thread_messages(
     thread: ChatThreadDocument,
-) -> list[ChatMessageResponse]:
-    """Retrieve all conversation messages for a chat thread.
+    limit: int,
+    before: PydanticObjectId | None = None,
+) -> tuple[list[ChatMessageResponse], PydanticObjectId | None]:
+    """Retrieve one page of conversation messages for a chat thread.
 
     Reads from the `ChatMessageDocument` collection, which stores
     the full unsummarized history independently of the LangGraph
     checkpointer.
 
+    Pages backwards from the newest message: without `before` the most
+    recent `limit` messages are returned, and each subsequent call passes
+    the previous page's `next_cursor` to walk further into the past.
+    The page itself is always ordered chronologically.
+
+    The cursor is a keyset on `_id`, not on `created_at`. Message ids are
+    driver-generated ObjectIds, so within a thread they are unique and
+    ordered by insertion — which `created_at` is not, since `_persist_turn`
+    writes the human and ai message of a turn back-to-back and they can
+    share a timestamp. It also keeps this to a single-field sort.
+
     Args:
         thread(ChatThreadDocument): The verified chat thread document.
+        limit(int): The maximum number of messages to return.
+        before(PydanticObjectId | None): Optional ID of the message to page
+            back from. Only messages strictly older than it are returned.
 
     Returns:
-        list[ChatMessageResponse]: The conversation messages with role
-            and content, in chronological order.
-    """
-    messages = (
-        await ChatMessageDocument.find(ChatMessageDocument.thread_id == thread.id)
-        .sort("+created_at")
-        .to_list()
-    )
+        tuple[list[ChatMessageResponse], PydanticObjectId | None]: The page
+            of messages in chronological order, and the cursor to pass as
+            `before` to fetch the older page (`None` when the history is
+            exhausted).
 
-    return [
-        ChatMessageResponse(role=msg.role, content=msg.content, sources=msg.sources)
-        for msg in messages
-    ]
+    Raises:
+        HTTPException: 422 if `before` does not identify a message of this
+            thread.
+    """
+    query = ChatMessageDocument.find(ChatMessageDocument.thread_id == thread.id)
+
+    if before is not None:
+        anchor = await ChatMessageDocument.find_one(
+            ChatMessageDocument.id == before,
+            ChatMessageDocument.thread_id == thread.id,
+        )
+        if anchor is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Invalid pagination cursor.",
+            )
+        query = query.find({"_id": {"$lt": anchor.id}})
+
+    # Over-fetch by one to detect whether older messages remain.
+    messages = await query.sort("-_id").limit(limit + 1).to_list()
+
+    has_more = len(messages) > limit
+    messages = messages[:limit]
+    messages.reverse()
+
+    next_cursor = messages[0].id if has_more and messages else None
+
+    return (
+        [
+            ChatMessageResponse(
+                id=msg.id,  # type: ignore[arg-type]
+                role=msg.role,
+                content=msg.content,
+                sources=msg.sources,
+            )
+            for msg in messages
+        ],
+        next_cursor,
+    )
 
 
 async def get_user_threads(

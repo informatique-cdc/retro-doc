@@ -57,6 +57,10 @@ class ChatSettings(BaseSettings):
     MONGODB_SERVER_SELECTION_TIMEOUT_MS: int = 10_000
     MONGODB_MAX_IDLE_TIME_MS: int = 10_000
 
+    # Chat history pagination
+    MESSAGES_PAGE_SIZE: int = 30
+    MESSAGES_MAX_PAGE_SIZE: int = 100
+
     # Agent tools
     REPO_GLOB_MAX_RESULTS: int = 100
     REPO_READ_FILE_GRAPH_MAX_CONTENT_LENGTH: int = 10_000
