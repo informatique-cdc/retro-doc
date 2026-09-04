@@ -180,10 +180,10 @@ uv run prek install   # backend & worker
 
 ## Maintainers & Contributors
 
-- Pierre Houdyer (**@Grandvizir**) <a href="https://github.com/Grandvizir"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub Grandvizir" align="center" src="https://cdn.simpleicons.org/github/black"></picture></a>
-- Edgar Lopez (**@KhadgarLopez**) <a href="https://github.com/KhadgarLopez"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub KhadgarLopez" align="center" src="https://cdn.simpleicons.org/github/black"></picture></a>
-- Mickaël Mayeur (**@Mikatux**) <a href="https://github.com/Mikatux"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub Mikatux" align="center" src="https://cdn.simpleicons.org/github/black"></picture></a>
-- Pierre-Alexandre Broux (**@pabroux**) <a href="https://github.com/pabroux"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub pabroux" align="center" src="https://cdn.simpleicons.org/github/black"></picture></a>
+- Pierre Houdyer (**@Grandvizir**) <a href="https://github.com/Grandvizir"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub Grandvizir" align="absmiddle" src="https://cdn.simpleicons.org/github/black"></picture></a>
+- Edgar Lopez (**@KhadgarLopez**) <a href="https://github.com/KhadgarLopez"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub KhadgarLopez" align="absmiddle" src="https://cdn.simpleicons.org/github/black"></picture></a>
+- Mickaël Mayeur (**@Mikatux**) <a href="https://github.com/Mikatux"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub Mikatux" align="absmiddle" src="https://cdn.simpleicons.org/github/black"></picture></a>
+- Pierre-Alexandre Broux (**@pabroux**) <a href="https://github.com/pabroux"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/white"><img width="20" alt="GitHub pabroux" align="absmiddle" src="https://cdn.simpleicons.org/github/black"></picture></a>
 
 ## License
 
