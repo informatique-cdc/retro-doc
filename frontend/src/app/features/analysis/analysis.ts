@@ -1,12 +1,16 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -16,17 +20,20 @@ import { map, Subscription, switchMap } from 'rxjs';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import {
   ChatMessage,
+  ChatMessageResponse,
   ChatMessageSegment,
   ChatRole,
   ChatService,
+  ChatStreamEvent,
   ChatThread,
+  ChatThreadMessagesResponse,
   DeepAnalysis,
   DeepAnalysisDetail,
   DeepAnalysisService,
   RepoStore,
 } from '../../core/api';
 import { BreadcrumbService } from '../../shared/breadcrumb.service';
-import { MarkdownPipe } from '../../shared/markdown.pipe';
+import { MarkdownPipe, MarkdownStreamPipe } from '../../shared/markdown.pipe';
 import { MermaidDirective } from '../../shared/mermaid.directive';
 import { timeAgo } from '../../shared/time-ago';
 import { GraphExplorer } from './graph-explorer/graph-explorer';
@@ -38,7 +45,7 @@ import { UiButton, UiSpinner } from '@design-system';
 @Component({
   selector: 'app-analysis',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GraphExplorer, DeepAnalysisDialog, DeepAnalysisDetailComponent, FormsModule, DatePipe, MarkdownPipe, MermaidDirective, TranslateModule, UiButton, UiSpinner],
+  imports: [GraphExplorer, DeepAnalysisDialog, DeepAnalysisDetailComponent, FormsModule, DatePipe, MarkdownPipe, MarkdownStreamPipe, MermaidDirective, TranslateModule, UiButton, UiSpinner],
   templateUrl: './analysis.html',
   styleUrl: './analysis.scss',
 })
@@ -50,8 +57,12 @@ export class Analysis implements OnInit {
   private readonly deepAnalysisService = inject(DeepAnalysisService);
   private readonly breadcrumbService = inject(BreadcrumbService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly translateService = inject(TranslateService);
   private readonly analysisActionService = inject(AnalysisActionService);
+
+  /** Number of messages fetched per history page. */
+  private static readonly PAGE_SIZE = 30;
 
   protected readonly repoId = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('id')!))
@@ -107,10 +118,44 @@ export class Analysis implements OnInit {
   protected readonly chatInputValue = signal('');
   protected readonly customQuestionValue = signal('');
   protected readonly isStreaming = signal(false);
+  /** Set while an existing answer is being replaced, rather than a new one appended. */
+  protected readonly isRetrying = signal(false);
+  /**
+   * Set when a regeneration produced nothing and the previous answer was put back.
+   *
+   * Needed because the failure leaves no trace in the transcript: unlike a
+   * failed send, there is no empty bubble to write the error into.
+   */
+  protected readonly retryFailed = signal(false);
+  /** The answer currently being switched to, so its pager can be disabled. */
+  protected readonly switchingVariantId = signal<string | null>(null);
+  protected readonly isSwitchingVariant = computed(() => this.switchingVariantId() !== null);
   protected readonly activeTools = signal<Map<string, string>>(new Map());
   protected readonly hasActiveTool = computed(() => this.activeTools().size > 0);
   protected readonly streamSegments = signal<ChatMessageSegment[]>([]);
-  protected readonly expandedReasoning = signal<Set<number>>(new Set());
+  protected readonly expandedReasoning = signal<Set<string>>(new Set());
+
+  // Lazy history loading
+  protected readonly loadingOlderMessages = signal(false);
+  private readonly messagesCursor = signal<string | null>(null);
+  /** The server sends a cursor only while older messages remain. */
+  protected readonly hasMoreMessages = computed(() => this.messagesCursor() !== null);
+  private readonly messagesContainer =
+    viewChild<ElementRef<HTMLElement>>('messagesContainer');
+  private readonly topSentinel = viewChild<ElementRef<HTMLElement>>('topSentinel');
+  private topObserver: IntersectionObserver | null = null;
+  private awaitingInitialScroll = false;
+  private localKeySeq = 0;
+  /**
+   * Bumped every time the list is replaced wholesale.
+   *
+   * Switching answers swaps the conversation for a different branch, so an
+   * older page requested before the switch describes messages that are no
+   * longer on screen; prepending it would mix the two branches together.
+   */
+  private historyGeneration = 0;
+
+  private scrollScheduled = false;
 
   protected readonly chatSuggestions = computed(() => [
     this.translateService.instant('analysis.financialCommitment'),
@@ -164,6 +209,31 @@ export class Analysis implements OnInit {
         this.refreshDeepAnalyses();
       }
     });
+
+    // The message list and its sentinel live inside `@if` branches, so both
+    // refs come and go as threads are switched. Re-attach the observer each
+    // time they change.
+    effect(() => {
+      const container = this.messagesContainer()?.nativeElement;
+      const sentinel = this.topSentinel()?.nativeElement;
+
+      this.topObserver?.disconnect();
+      this.topObserver = null;
+
+      if (!container || !sentinel) return;
+
+      this.topObserver = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            this.loadOlderMessages();
+          }
+        },
+        { root: container, rootMargin: '200px 0px 0px 0px' }
+      );
+      this.topObserver.observe(sentinel);
+    });
+
+    this.destroyRef.onDestroy(() => this.topObserver?.disconnect());
   }
 
   ngOnInit(): void {
@@ -227,8 +297,15 @@ export class Analysis implements OnInit {
     this.chatContext.set(null);
     this.chatInputValue.set('');
     this.isStreaming.set(false);
+    this.isRetrying.set(false);
+    this.retryFailed.set(false);
+    this.switchingVariantId.set(null);
     this.activeTools.set(new Map());
     this.streamSegments.set([]);
+    this.expandedReasoning.set(new Set());
+    this.loadingOlderMessages.set(false);
+    this.messagesCursor.set(null);
+    this.awaitingInitialScroll = false;
     this.loadingMessages.set(false);
     this.updateUrl();
   }
@@ -246,6 +323,7 @@ export class Analysis implements OnInit {
     this.isChatOpen.set(true);
     this.chatMessages.set([
       {
+        key: this.nextLocalKey(),
         role: 'assistant',
         content: this.translateService.instant('analysis.chatWelcome'),
         timestamp: new Date(),
@@ -267,38 +345,179 @@ export class Analysis implements OnInit {
     this.isChatOpen.set(true);
     this.loadingMessages.set(true);
     this.isStreaming.set(false);
+    this.isRetrying.set(false);
+    this.retryFailed.set(false);
+    this.switchingVariantId.set(null);
     this.activeTools.set(new Map());
     this.streamSegments.set([]);
+    this.expandedReasoning.set(new Set());
+    this.loadingOlderMessages.set(false);
+    this.messagesCursor.set(null);
+    this.awaitingInitialScroll = true;
     this.activeHistoryTab.set('chat');
     this.updateUrl();
 
     this.chatService
-      .getMessages(chatId)
+      .getMessages(chatId, { limit: Analysis.PAGE_SIZE })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          const messages: ChatMessage[] = res.messages.map((m) => {
-            const role = this.normalizeRole(m.role);
-            const parsed = this.parseMessageContext(m.content, role);
-            return {
-              role,
-              ...parsed,
-              content: this.stripTitleJson(parsed.content, role),
-            };
-          });
-          this.chatMessages.set(messages);
+          this.applyMessagePage(res);
           this.loadingMessages.set(false);
         },
         error: () => {
+          this.awaitingInitialScroll = false;
           this.chatMessages.set([
             {
+              key: this.nextLocalKey(),
               role: 'assistant',
               content: this.translateService.instant('analysis.chatError'),
             },
           ]);
+          this.messagesCursor.set(null);
           this.loadingMessages.set(false);
         },
       });
+  }
+
+  /**
+   * Render a freshly fetched page as the entire conversation.
+   *
+   * Used when opening a thread and when switching branches: in both cases
+   * whatever was on screen no longer describes the conversation, so the page
+   * replaces the list rather than merging into it.
+   */
+  private applyMessagePage(res: ChatThreadMessagesResponse): void {
+    this.historyGeneration++;
+    this.chatMessages.set(res.messages.map((m) => this.toChatMessage(m)));
+    // `hasMoreMessages` derives from the cursor, so setting it is enough.
+    this.messagesCursor.set(res.next_cursor ?? null);
+    this.streamSegments.set([]);
+    this.retryFailed.set(false);
+    this.loadingOlderMessages.set(false);
+    this.awaitingInitialScroll = true;
+    // Only the newest page is loaded, so the conversation must open at its
+    // end — otherwise the top sentinel is immediately in view and would
+    // cascade-load the whole history.
+    this.afterRender(() => {
+      this.scrollToBottom();
+      this.awaitingInitialScroll = false;
+      this.fillViewportIfNeeded();
+    });
+  }
+
+  /** Load the page of messages preceding the ones currently displayed. */
+  private loadOlderMessages(): void {
+    const chatId = this.activeChatId();
+    const before = this.messagesCursor();
+    if (
+      !chatId ||
+      // No cursor means the history is exhausted.
+      !before ||
+      this.loadingOlderMessages() ||
+      // The sentinel starts in view until the list is scrolled to its end;
+      // ignore it until that has happened.
+      this.awaitingInitialScroll
+    ) {
+      return;
+    }
+
+    this.loadingOlderMessages.set(true);
+    const generation = this.historyGeneration;
+
+    this.chatService
+      .getMessages(chatId, { limit: Analysis.PAGE_SIZE, before })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          // The conversation was replaced while this page was in flight, so
+          // it belongs to a branch the user is no longer reading.
+          if (generation !== this.historyGeneration) return;
+
+          // Measure immediately before the prepend: the list may have grown at
+          // the bottom while the request was in flight (e.g. a live stream).
+          const container = this.messagesContainer()?.nativeElement;
+          const prevScrollHeight = container?.scrollHeight ?? 0;
+          const prevScrollTop = container?.scrollTop ?? 0;
+
+          const older = res.messages.map((m) => this.toChatMessage(m));
+          this.chatMessages.update((list) => [...older, ...list]);
+          this.messagesCursor.set(res.next_cursor ?? null);
+          this.loadingOlderMessages.set(false);
+          // Keep the message the user was reading in place as content grows above it.
+          this.afterRender(() => {
+            const el = this.messagesContainer()?.nativeElement;
+            if (!el) return;
+            el.scrollTop = el.scrollHeight - prevScrollHeight + prevScrollTop;
+            this.fillViewportIfNeeded();
+          });
+        },
+        error: () => {
+          if (generation !== this.historyGeneration) return;
+          this.loadingOlderMessages.set(false);
+        },
+      });
+  }
+
+  /** Map a server message onto the render model, keyed by its document ID. */
+  private toChatMessage(message: ChatMessageResponse): ChatMessage {
+    const role = this.normalizeRole(message.role);
+    return {
+      key: message.id,
+      id: message.id,
+      role,
+      ...this.parseMessageContext(message.content, role),
+      variantIndex: message.variant_index,
+      variantCount: message.variant_count,
+      prevVariantId: message.prev_variant_id,
+      nextVariantId: message.next_variant_id,
+    };
+  }
+
+  /** A key for a message that exists only on the client (optimistic or local). */
+  private nextLocalKey(): string {
+    return `local-${++this.localKeySeq}`;
+  }
+
+  private afterRender(fn: () => void): void {
+    afterNextRender(fn, { injector: this.injector });
+  }
+
+  private scrollToBottom(): void {
+    const el = this.messagesContainer()?.nativeElement;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  /**
+   * Scroll to the end after the next render, at most once per frame.
+   *
+   * Streamed tokens arrive far faster than the browser paints, so scheduling
+   * one callback per token would queue hundreds of redundant scrolls.
+   */
+  private scheduleScrollToBottom(): void {
+    if (this.scrollScheduled) return;
+
+    this.scrollScheduled = true;
+    this.afterRender(() => {
+      this.scrollScheduled = false;
+      this.scrollToBottom();
+    });
+  }
+
+  /**
+   * Pull another page when the loaded ones do not overflow the container.
+   *
+   * The sentinel stays on screen in that case, and `IntersectionObserver`
+   * only reports transitions — so no further callback would ever arrive and
+   * the user would be stuck with no way to reach the older messages.
+   */
+  private fillViewportIfNeeded(): void {
+    const el = this.messagesContainer()?.nativeElement;
+    if (el && el.scrollHeight <= el.clientHeight) {
+      this.loadOlderMessages();
+    }
   }
 
   protected deleteThread(event: Event, chatId: string): void {
@@ -322,25 +541,42 @@ export class Analysis implements OnInit {
     navigator.clipboard.writeText(msg.content);
   }
 
-
   protected sendMessage(): void {
     const text = this.chatInputValue().trim();
     if (!text || this.isStreaming()) return;
 
+    this.retryFailed.set(false);
+
     const ctx = this.chatContext();
     const fullMessage = ctx ? `[Context: ${ctx.fileName} > ${ctx.nodeLabel}] ${text}` : text;
 
+    const userKey = this.nextLocalKey();
     this.chatMessages.update((msgs) => [
       ...msgs,
-      { role: 'user', content: text, timestamp: new Date(), context: ctx ?? undefined },
+      {
+        key: userKey,
+        role: 'user',
+        content: text,
+        timestamp: new Date(),
+        context: ctx ?? undefined,
+      },
     ]);
     this.chatInputValue.set('');
     this.isStreaming.set(true);
     this.streamSegments.set([]);
 
-    const assistantMsg: ChatMessage = { role: 'assistant', content: '', timestamp: new Date() };
+    // Target the streamed message by key: loading older pages prepends to the
+    // list, so a captured array index would drift onto the wrong message.
+    const assistantKey = this.nextLocalKey();
+    const assistantMsg: ChatMessage = {
+      key: assistantKey,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+    };
     this.chatMessages.update((msgs) => [...msgs, assistantMsg]);
-    const assistantIndex = this.chatMessages().length - 1;
+
+    this.scheduleScrollToBottom();
 
     this.streamSub?.unsubscribe();
 
@@ -349,77 +585,263 @@ export class Analysis implements OnInit {
       ? this.chatService.resumeChat(chatId, fullMessage)
       : this.chatService.createChat(this.repoId()!, fullMessage);
 
+    // Set by an `error` event, so the stream's completion leaves the reported
+    // failure on screen instead of rebuilding the bubble from the segments.
+    let failed = false;
+
     this.streamSub = stream$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (event) => {
+        // Every event type below grows the list or the streaming panel.
+        this.scheduleScrollToBottom();
+
         if (event.type === 'chat_id') {
           this.activeChatId.set(event.chatId);
           this.updateUrl();
-        } else if (event.type === 'tool_start') {
-          this.activeTools.update((m) => {
-            const next = new Map(m);
-            next.set(event.id, event.tool);
-            return next;
-          });
-          this.streamSegments.update((segs) => [
-            ...segs,
-            { type: 'tool', content: event.tool, toolId: event.id },
-          ]);
-        } else if (event.type === 'tool_end') {
-          this.activeTools.update((m) => {
-            const next = new Map(m);
-            next.delete(event.id);
-            return next;
-          });
-          this.streamSegments.update((segs) => {
-            const updated = segs.map((seg) =>
-              seg.type === 'tool' && seg.toolId === event.id
-                ? { ...seg, toolStatus: event.status }
-                : seg
-            );
-            return [...updated, { type: 'text' as const, content: '' }];
-          });
+        } else if (event.type === 'error') {
+          failed = true;
+          this.showStreamError(assistantKey, event.detail);
         } else {
-          this.streamSegments.update((segs) => {
-            const last = segs[segs.length - 1];
-            if (last && last.type === 'text') {
-              const updated = [...segs];
-              updated[updated.length - 1] = { ...last, content: last.content + event.content };
-              return updated;
-            }
-            return [...segs, { type: 'text', content: event.content }];
-          });
-          this.chatMessages.update((msgs) => {
-            const updated = [...msgs];
-            updated[assistantIndex] = {
-              ...updated[assistantIndex],
-              content: updated[assistantIndex].content + event.content,
-            };
-            return updated;
-          });
+          this.applyStreamEvent(event, assistantKey, userKey);
         }
       },
       error: () => {
-        this.chatMessages.update((msgs) => {
-          const updated = [...msgs];
-          updated[assistantIndex] = {
-            ...updated[assistantIndex],
-            content:
-              updated[assistantIndex].content ||
-              this.translateService.instant('analysis.chatError'),
-          };
-          return updated;
-        });
+        this.showStreamError(assistantKey);
         this.isStreaming.set(false);
         this.activeTools.set(new Map());
+        this.scheduleScrollToBottom();
       },
       complete: () => {
         this.isStreaming.set(false);
         this.activeTools.set(new Map());
-        this.finalizeStreamedMessage(assistantIndex);
-        this.stripTitleFromLastMessage();
+        if (!failed) {
+          this.finalizeStreamedMessage(assistantKey);
+        }
         this.refreshThreads();
+        // Ending the stream swaps the live panel for the final bubble, which
+        // changes the list's height.
+        this.scheduleScrollToBottom();
       },
     });
+  }
+
+  /**
+   * Answer the last question again, keeping the answer it already has.
+   *
+   * The new answer replaces the existing bubble instead of being appended:
+   * the two are alternatives to the same question, and the pager is how the
+   * user moves between them.
+   */
+  protected retry(msg: ChatMessage): void {
+    const chatId = this.activeChatId();
+    const messageId = msg.id;
+    if (!chatId || !messageId || this.isStreaming() || this.isRetrying()) return;
+
+    const previous = msg;
+    const assistantKey = msg.key;
+
+    // Cleared before the live panel is switched on, or the previous turn's
+    // segments would flash in place of the answer being regenerated.
+    this.streamSegments.set([]);
+    this.activeTools.set(new Map());
+    this.retryFailed.set(false);
+    this.isRetrying.set(true);
+    this.isStreaming.set(true);
+    this.patchMessage(assistantKey, { content: '', reasoning: undefined });
+    this.scheduleScrollToBottom();
+
+    this.streamSub?.unsubscribe();
+
+    let failed = false;
+    let saved = false;
+
+    this.streamSub = this.chatService
+      .retryMessage(chatId, messageId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (event) => {
+          this.scheduleScrollToBottom();
+
+          if (event.type === 'message_saved') {
+            saved = true;
+            this.applyStreamEvent(event, assistantKey);
+          } else if (event.type === 'error') {
+            failed = true;
+            this.restoreMessage(previous);
+          } else {
+            this.applyStreamEvent(event, assistantKey);
+          }
+        },
+        error: () => {
+          // Once the answer is saved the server has already switched to it,
+          // so restoring the old one here would only disagree with it.
+          if (saved) {
+            this.reloadActivePage();
+          } else {
+            this.restoreMessage(previous);
+          }
+          this.endRetry();
+        },
+        complete: () => {
+          if (!failed) {
+            this.finalizeStreamedMessage(assistantKey);
+          }
+          this.endRetry();
+          this.refreshThreads();
+        },
+      });
+  }
+
+  /**
+   * Switch the conversation onto another answer to the same question.
+   *
+   * The turns that followed the other answer are hidden and the ones that
+   * followed this one return, so the whole conversation from that point on
+   * is replaced by what the server sends back.
+   */
+  protected switchVariant(messageId: string | undefined): void {
+    const chatId = this.activeChatId();
+    if (!chatId || !messageId || this.isStreaming() || this.isSwitchingVariant()) return;
+
+    this.switchingVariantId.set(messageId);
+
+    this.chatService
+      .selectVariant(chatId, messageId, { limit: Analysis.PAGE_SIZE })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.applyMessagePage(res);
+          this.switchingVariantId.set(null);
+        },
+        error: () => {
+          this.switchingVariantId.set(null);
+        },
+      });
+  }
+
+  /**
+   * Apply one streamed event to the answer being written.
+   *
+   * Shared by sending and regenerating: both write into a single assistant
+   * bubble, addressed by key because loading older pages prepends to the
+   * list and would shift any captured index.
+   */
+  private applyStreamEvent(
+    event: ChatStreamEvent,
+    assistantKey: string,
+    userKey?: string
+  ): void {
+    if (event.type === 'tool_start') {
+      this.activeTools.update((m) => {
+        const next = new Map(m);
+        next.set(event.id, event.tool);
+        return next;
+      });
+      this.streamSegments.update((segs) => [
+        ...segs,
+        { type: 'tool', content: event.tool, toolId: event.id },
+      ]);
+    } else if (event.type === 'tool_end') {
+      this.activeTools.update((m) => {
+        const next = new Map(m);
+        next.delete(event.id);
+        return next;
+      });
+      this.streamSegments.update((segs) => {
+        const updated = segs.map((seg) =>
+          seg.type === 'tool' && seg.toolId === event.id
+            ? { ...seg, toolStatus: event.status }
+            : seg
+        );
+        return [...updated, { type: 'text' as const, content: '' }];
+      });
+    } else if (event.type === 'message_saved') {
+      this.patchMessage(assistantKey, {
+        id: event.messageId,
+        variantIndex: event.variantIndex,
+        variantCount: event.variantCount,
+        prevVariantId: event.prevVariantId,
+        // The freshly generated answer is always the newest of its group.
+        nextVariantId: undefined,
+      });
+      if (userKey && event.humanMessageId) {
+        this.patchMessage(userKey, { id: event.humanMessageId });
+      }
+    } else if (event.type === 'token') {
+      this.streamSegments.update((segs) => {
+        const last = segs[segs.length - 1];
+        if (last && last.type === 'text') {
+          const updated = [...segs];
+          updated[updated.length - 1] = { ...last, content: last.content + event.content };
+          return updated;
+        }
+        return [...segs, { type: 'text', content: event.content }];
+      });
+      this.chatMessages.update((msgs) =>
+        msgs.map((msg) =>
+          msg.key === assistantKey ? { ...msg, content: msg.content + event.content } : msg
+        )
+      );
+    } else if (event.type === 'title') {
+      // Applied straight away so the sidebar renames as the answer is being
+      // written, rather than waiting for the thread list to be refetched.
+      this.applyThreadTitle(event.title);
+    }
+  }
+
+  /** Re-read the newest page, when the client can no longer trust its own copy. */
+  private reloadActivePage(): void {
+    const chatId = this.activeChatId();
+    if (!chatId) return;
+    this.chatService
+      .getMessages(chatId, { limit: Analysis.PAGE_SIZE })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.applyMessagePage(res),
+      });
+  }
+
+  /** Merge changes into one message, leaving its `key` and the rest untouched. */
+  private patchMessage(key: string, patch: Partial<ChatMessage>): void {
+    this.chatMessages.update((msgs) =>
+      msgs.map((msg) => (msg.key === key ? { ...msg, ...patch } : msg))
+    );
+  }
+
+  /** Put a message back as it was, after a regeneration that produced nothing. */
+  private restoreMessage(previous: ChatMessage): void {
+    this.chatMessages.update((msgs) =>
+      msgs.map((msg) => (msg.key === previous.key ? previous : msg))
+    );
+    this.streamSegments.set([]);
+    this.retryFailed.set(true);
+  }
+
+  /**
+   * Report a failed turn in the bubble it was being written into.
+   *
+   * The server's own wording wins when it sent one, because it says what went
+   * wrong; a partial answer is kept otherwise, and the generic message is the
+   * last resort for a stream that died without explaining itself.
+   */
+  private showStreamError(assistantKey: string, detail?: string): void {
+    this.chatMessages.update((msgs) =>
+      msgs.map((msg) =>
+        msg.key === assistantKey
+          ? {
+              ...msg,
+              content:
+                detail || msg.content || this.translateService.instant('analysis.chatError'),
+            }
+          : msg
+      )
+    );
+  }
+
+  private endRetry(): void {
+    this.isRetrying.set(false);
+    this.isStreaming.set(false);
+    this.activeTools.set(new Map());
+    this.scheduleScrollToBottom();
   }
 
   protected onCustomQuestionSubmit(): void {
@@ -434,6 +856,7 @@ export class Analysis implements OnInit {
     this.isChatOpen.set(true);
     this.chatMessages.set([
       {
+        key: this.nextLocalKey(),
         role: 'assistant',
         content: this.translateService.instant('analysis.chatWelcome'),
         timestamp: new Date(),
@@ -456,20 +879,20 @@ export class Analysis implements OnInit {
     return role === 'assistant' || role === 'ai';
   }
 
-  protected toggleReasoning(index: number): void {
+  protected toggleReasoning(key: string): void {
     this.expandedReasoning.update((set) => {
       const next = new Set(set);
-      if (next.has(index)) {
-        next.delete(index);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(index);
+        next.add(key);
       }
       return next;
     });
   }
 
-  protected isReasoningExpanded(index: number): boolean {
-    return this.expandedReasoning().has(index);
+  protected isReasoningExpanded(key: string): boolean {
+    return this.expandedReasoning().has(key);
   }
 
   // Deep analysis methods
@@ -630,7 +1053,7 @@ export class Analysis implements OnInit {
       });
   }
 
-  private finalizeStreamedMessage(assistantIndex: number): void {
+  private finalizeStreamedMessage(assistantKey: string): void {
     const segments = this.streamSegments();
     let lastToolIndex = -1;
     for (let i = segments.length - 1; i >= 0; i--) {
@@ -649,15 +1072,11 @@ export class Analysis implements OnInit {
       .map((s) => s.content)
       .join('');
 
-    this.chatMessages.update((msgs) => {
-      const updated = [...msgs];
-      updated[assistantIndex] = {
-        ...updated[assistantIndex],
-        content: finalContent,
-        reasoning,
-      };
-      return updated;
-    });
+    this.chatMessages.update((msgs) =>
+      msgs.map((msg) =>
+        msg.key === assistantKey ? { ...msg, content: finalContent, reasoning } : msg
+      )
+    );
   }
 
   private normalizeRole(role: string): ChatRole {
@@ -683,25 +1102,18 @@ export class Analysis implements OnInit {
     return { content };
   }
 
-  private stripTitleJson(content: string, role: ChatRole): string {
-    if (this.isUserRole(role)) return content;
-    return content.replace(/\s*\{"title"\s*:\s*"[^"]*"\}\s*$/, '').trimEnd();
-  }
-
-  private stripTitleFromLastMessage(): void {
-    const msgs = this.chatMessages();
-    if (msgs.length === 0) return;
-    const lastMsg = msgs[msgs.length - 1];
-    if (this.isUserRole(lastMsg.role)) return;
-
-    const stripped = this.stripTitleJson(lastMsg.content, lastMsg.role);
-    if (stripped !== lastMsg.content) {
-      this.chatMessages.update((list) => {
-        const updated = [...list];
-        updated[updated.length - 1] = { ...updated[updated.length - 1], content: stripped };
-        return updated;
-      });
-    }
+  /**
+   * Show the generated title on the thread list as soon as it is streamed.
+   *
+   * A thread created by this very stream is not in the list yet; the refresh
+   * that runs when the stream completes picks it up.
+   */
+  private applyThreadTitle(title: string): void {
+    const chatId = this.activeChatId();
+    if (!chatId) return;
+    this.threads.update((list) =>
+      list.map((thread) => (thread.chat_id === chatId ? { ...thread, title } : thread))
+    );
   }
 
   private refreshThreads(): void {

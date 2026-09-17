@@ -218,8 +218,15 @@
             <ui-spinner size="large" [ariaLabel]="'common.loading' | translate"></ui-spinner>
           </div>
         } @else {
-        <div class="analysis__chat-messages">
-          @for (msg of chatMessages(); track $index) {
+        <div class="analysis__chat-messages" #messagesContainer>
+          @if (hasMoreMessages()) {
+            <div class="analysis__chat-load-older" #topSentinel aria-live="polite">
+              @if (loadingOlderMessages()) {
+                <ui-spinner size="small" [ariaLabel]="'analysis.loadingOlderMessages' | translate"></ui-spinner>
+              }
+            </div>
+          }
+          @for (msg of chatMessages(); track msg.key) {
             <div class="analysis__chat-row" [class.analysis__chat-row--user]="isUserRole(msg.role)">
               @if (isAssistantRole(msg.role)) {
                 <div class="analysis__chat-avatar" aria-hidden="true">
@@ -246,7 +253,10 @@
                   }
                   @for (seg of streamSegments(); track $index) {
                     @if (seg.type === 'text' && seg.content) {
-                      <div class="analysis__chat-streaming">{{ seg.content }}</div>
+                      <!-- No `appMermaid` here: the directive renders a diagram once and
+                           marks the node done, so a half-streamed source would be stuck as
+                           an error. Diagrams are drawn on the finished message below. -->
+                      <div class="markdown-body" [innerHTML]="seg.content | markdownStream"></div>
                     } @else if (seg.type === 'tool') {
                       <div class="analysis__chat-tool-indicator" role="status">
                         @if (seg.toolStatus === 'success') {
@@ -283,23 +293,23 @@
                       <button
                         type="button"
                         class="analysis__chat-reasoning-toggle"
-                        [attr.aria-expanded]="isReasoningExpanded($index)"
-                        (click)="toggleReasoning($index)"
+                        [attr.aria-expanded]="isReasoningExpanded(msg.key)"
+                        (click)="toggleReasoning(msg.key)"
                       >
                         <svg
                           class="analysis__chat-reasoning-chevron"
-                          [class.analysis__chat-reasoning-chevron--open]="isReasoningExpanded($index)"
+                          [class.analysis__chat-reasoning-chevron--open]="isReasoningExpanded(msg.key)"
                           width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"
                         >
                           <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                        @if (isReasoningExpanded($index)) {
+                        @if (isReasoningExpanded(msg.key)) {
                           {{ 'analysis.hideReasoning' | translate }}
                         } @else {
                           {{ 'analysis.showReasoning' | translate }}
                         }
                       </button>
-                      @if (isReasoningExpanded($index)) {
+                      @if (isReasoningExpanded(msg.key)) {
                         <div class="analysis__chat-reasoning">
                           @for (seg of msg.reasoning; track $index) {
                             @if (seg.type === 'text' && seg.content) {
@@ -338,6 +348,41 @@
             </div>
             @if (isAssistantRole(msg.role)) {
               <div class="analysis__chat-actions">
+                @if (msg.variantCount && msg.variantCount > 1) {
+                  <div
+                    class="analysis__chat-pager"
+                    role="group"
+                    [attr.aria-label]="'analysis.variantPagerLabel' | translate"
+                  >
+                    <button
+                      type="button"
+                      class="analysis__chat-action-btn"
+                      [attr.aria-label]="'analysis.previousVariant' | translate"
+                      [disabled]="!msg.prevVariantId || isStreaming() || isSwitchingVariant()"
+                      (click)="switchVariant(msg.prevVariantId)"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M10 4L6 8L10 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <span
+                      class="analysis__chat-pager-count"
+                      aria-live="polite"
+                      [attr.aria-label]="'analysis.variantPosition' | translate: { index: msg.variantIndex, count: msg.variantCount }"
+                    >{{ msg.variantIndex }}/{{ msg.variantCount }}</span>
+                    <button
+                      type="button"
+                      class="analysis__chat-action-btn"
+                      [attr.aria-label]="'analysis.nextVariant' | translate"
+                      [disabled]="!msg.nextVariantId || isStreaming() || isSwitchingVariant()"
+                      (click)="switchVariant(msg.nextVariantId)"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                }
                 <button
                   type="button"
                   class="analysis__chat-action-btn"
@@ -349,6 +394,20 @@
                     <path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" stroke="currentColor" stroke-width="1.3"/>
                   </svg>
                 </button>
+                @if ($last && msg.id) {
+                  <button
+                    type="button"
+                    class="analysis__chat-action-btn"
+                    [attr.aria-label]="'analysis.regenerate' | translate"
+                    [disabled]="isStreaming() || isRetrying() || isSwitchingVariant()"
+                    (click)="retry(msg)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M13 8a5 5 0 1 1-1.46-3.54" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M13 2.5V5.5H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                }
               </div>
             }
             <span
@@ -357,6 +416,12 @@
             >{{ msg.timestamp | date:'h:mm:ss a' }}</span>
           }
         </div>
+        }
+
+        @if (retryFailed()) {
+          <p class="analysis__chat-retry-error" role="alert">
+            {{ 'analysis.regenerateError' | translate }}
+          </p>
         }
 
         <div class="analysis__chat-footer">

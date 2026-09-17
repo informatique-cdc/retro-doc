@@ -577,6 +577,17 @@
   flex-direction: column;
   gap: 0.25rem;
   padding-block-end: 1rem;
+  // Older pages are prepended and the scroll offset is restored manually;
+  // the browser's own anchoring would fight that and cause a visible jump.
+  overflow-anchor: none;
+}
+
+.analysis__chat-load-older {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 2.5rem;
 }
 
 .analysis__chat-row {
@@ -647,11 +658,6 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-.analysis__chat-streaming {
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .analysis__chat-cursor {
@@ -834,6 +840,41 @@
     outline: 2px solid var(--color-focus, #4f46e5);
     outline-offset: -2px;
   }
+
+  // A disabled arrow is how the pager says "you are at the first/last
+  // answer", so it has to stay legible rather than fade out.
+  &:disabled {
+    color: var(--color-text-disabled, #d1d5db);
+    cursor: default;
+
+    &:hover {
+      background-color: transparent;
+      color: var(--color-text-disabled, #d1d5db);
+    }
+  }
+}
+
+.analysis__chat-pager {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.analysis__chat-pager-count {
+  font-size: 0.75rem;
+  color: var(--color-text-primary, #1a1a1a);
+  // Keeps 1/9 and 1/10 the same width, so the arrows don't shift under
+  // the pointer as the count grows.
+  font-variant-numeric: tabular-nums;
+  min-inline-size: 1.75rem;
+  text-align: center;
+}
+
+.analysis__chat-retry-error {
+  margin: 0.5rem 0 0;
+  padding-inline-start: 3rem;
+  font-size: 0.8125rem;
+  color: #dc2626;
 }
 
 .analysis__chat-time {

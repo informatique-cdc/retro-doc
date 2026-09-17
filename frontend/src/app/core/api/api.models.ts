@@ -135,11 +135,27 @@ export interface ChatMessageSegment {
 }
 
 export interface ChatMessage {
+  /**
+   * Stable identity for tracking and targeted updates, independent of array position.
+   *
+   * Never reassigned once a message is rendered: `@for` tracks by it, so
+   * changing it tears the DOM node down and rebuilds it, losing the scroll
+   * position and any text streaming into it.
+   */
+  key: string;
+  /** The server's document ID, once the message has been persisted. */
+  id?: string;
   role: ChatRole;
   content: string;
   timestamp?: Date;
   context?: { fileName: string; nodeLabel: string };
   reasoning?: ChatMessageSegment[];
+  /** 1-based position among the answers to the same question. */
+  variantIndex?: number;
+  /** Total answers to the same question. Absent or 1 means no pager. */
+  variantCount?: number;
+  prevVariantId?: string;
+  nextVariantId?: string;
 }
 
 export interface ChatThread {
@@ -155,17 +171,52 @@ export interface ChatThreadListResponse {
 }
 
 export interface ChatMessageResponse {
+  id: string;
   role: string;
   content: string;
+  /** Pager fields, sent only for a question that has more than one answer. */
+  variant_index?: number;
+  variant_count?: number;
+  prev_variant_id?: string;
+  next_variant_id?: string;
 }
 
 export interface ChatThreadMessagesResponse {
   chat_id: string;
   messages: ChatMessageResponse[];
+  /**
+   * Pass as `before` to load the preceding page. Omitted on the last page,
+   * which is also how the end of the history is signalled.
+   */
+  next_cursor?: string | null;
 }
 
+/** A file a tool referenced, so the answer can link back to it. */
+export interface ChatSource {
+  path: string;
+  file_id: string;
+}
+
+/**
+ * One event from a chat SSE stream.
+ *
+ * Every event type the server emits is represented here: an unmodelled type
+ * would otherwise be misread as a token and its payload appended to the
+ * message body.
+ */
 export type ChatStreamEvent =
   | { type: 'chat_id'; chatId: string }
   | { type: 'token'; content: string }
   | { type: 'tool_start'; tool: string; id: string }
-  | { type: 'tool_end'; tool: string; id: string; status: ToolStatus };
+  | { type: 'tool_end'; tool: string; id: string; status: ToolStatus; sources?: ChatSource[] }
+  | { type: 'title'; title: string }
+  | { type: 'error'; detail: string }
+  | {
+      type: 'message_saved';
+      messageId: string;
+      humanMessageId?: string;
+      /** Defaulted to 1 when the server omits them, i.e. the only answer so far. */
+      variantIndex: number;
+      variantCount: number;
+      prevVariantId?: string;
+    };
