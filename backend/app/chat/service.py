@@ -5,7 +5,9 @@ This module contains the business logic for the chat.
 
 import asyncio
 import re
+from collections import defaultdict
 from collections.abc import AsyncGenerator, AsyncIterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,18 +21,126 @@ from loguru import logger
 from app.auth.schemas import User
 from app.chat.config import chat_settings
 from app.chat.llm import get_agent, title_model
-from app.chat.models import ChatMessageDocument, ChatThreadDocument
+from app.chat.models import (
+    SELECTED_BRANCH_FILTER,
+    ChatMessageDocument,
+    ChatMessageView,
+    ChatThreadDocument,
+)
 from app.chat.prompts import TITLE_SYSTEM_PROMPT
-from app.chat.schemas import ChatContext, ChatMessageResponse
+from app.chat.schemas import ChatContext
 from app.chat.sse import (
     sse_chat_id,
     sse_done,
     sse_error,
+    sse_message_saved,
     sse_title,
     sse_token,
     sse_tool_end,
     sse_tool_start,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class VariantPosition:
+    """One answer's place among the other answers to the same question."""
+
+    index: int
+    """1-based, for display as `index/count`."""
+
+    count: int
+    prev_id: PydanticObjectId | None
+    next_id: PydanticObjectId | None
+
+
+@dataclass(frozen=True, slots=True)
+class ForkPoint:
+    """Where to re-enter the graph when regenerating an answer."""
+
+    checkpoint_id: str
+    """The checkpoint to resume the graph from."""
+
+    parent_checkpoint_id: str | None
+    """Persisted verbatim on the new message, so it joins the right sibling group."""
+
+    replay: bool = False
+    """Replay the pending model task instead of sending the message again.
+
+    Used for the first turn of a thread, which has no earlier resting
+    checkpoint to fork from, so its `{"source": "input"}` checkpoint is
+    replayed instead.
+    """
+
+    supersedes: PydanticObjectId | None = None
+    """The answer this run regenerates, deactivated once the new one is saved."""
+
+    input_checkpoint_id: str | None = None
+    """Carried over to the new message when replaying, since no new one is written."""
+
+
+async def _active_leaf_checkpoint_id(thread_id: PydanticObjectId) -> str | None:
+    """Find the resting checkpoint the selected branch currently ends on.
+
+    Args:
+        thread_id(PydanticObjectId): The thread to inspect.
+
+    Returns:
+        str | None: The `checkpoint_id` of the newest active AI message,
+            or `None` if the thread has no answer to continue from.
+    """
+    leaf = (
+        await ChatMessageDocument.find(
+            ChatMessageDocument.thread_id == thread_id,
+            {"role": "ai"},
+            SELECTED_BRANCH_FILTER,
+        )
+        .project(ChatMessageView)
+        .sort("-_id")
+        .limit(1)
+        .to_list()
+    )
+    return leaf[0].checkpoint_id if leaf else None
+
+
+async def _annotate_variants(
+    thread_id: PydanticObjectId, messages: list[ChatMessageDocument]
+) -> dict[PydanticObjectId, VariantPosition]:
+    """Build the variant pager metadata for a page of messages.
+
+    Every AI message on the page is looked up against its siblings — the
+    answers sharing its `parent_checkpoint_id` — in a single query. Turns
+    that were never regenerated have no siblings and are left out, so the
+    response stays exactly as it was before regeneration existed.
+
+    Args:
+        thread_id(PydanticObjectId): The thread the page belongs to.
+        messages(list[ChatMessageDocument]): The page of messages.
+
+    Returns:
+        dict[PydanticObjectId, VariantPosition]: The pager metadata keyed by
+            message ID, for messages that have more than one answer.
+    """
+    parents = {msg.parent_checkpoint_id for msg in messages if msg.role == "ai"}
+    if not parents:
+        return {}
+
+    siblings = (
+        await ChatMessageDocument.find(
+            ChatMessageDocument.thread_id == thread_id,
+            {"role": "ai", "parent_checkpoint_id": {"$in": list(parents)}},
+        )
+        .project(ChatMessageView)
+        .to_list()
+    )
+
+    groups: dict[str | None, list[ChatMessageView]] = defaultdict(list)
+    for sibling in siblings:
+        groups[sibling.parent_checkpoint_id].append(sibling)
+
+    annotations: dict[PydanticObjectId, VariantPosition] = {}
+    for group in groups.values():
+        annotations.update(_variant_positions(group))
+    return annotations
 
 
 def _copy_config_with_checkpoint_id(
@@ -77,6 +187,36 @@ def _deduplicate_sources(
     return unique
 
 
+async def _load_thread_nodes(
+    thread_id: PydanticObjectId,
+) -> dict[str | None, list[ChatMessageView]]:
+    """Load a thread's messages as a tree, grouped by the turn they follow.
+
+    Messages sharing a `parent_checkpoint_id` are the alternatives at that
+    point in the conversation: the question asked there, and every answer
+    given to it. Each group is ordered by ID, so the first entry is the
+    question and the answers follow in the order they were generated.
+
+    Args:
+        thread_id(PydanticObjectId): The thread to load.
+
+    Returns:
+        dict[str | None, list[ChatMessageView]]: The messages keyed by
+            the checkpoint they branch from, `None` for the first turn.
+    """
+    nodes = (
+        await ChatMessageDocument.find(ChatMessageDocument.thread_id == thread_id)
+        .project(ChatMessageView)
+        .to_list()
+    )
+    by_parent: dict[str | None, list[ChatMessageView]] = defaultdict(list)
+    for node in nodes:
+        by_parent[node.parent_checkpoint_id].append(node)
+    for group in by_parent.values():
+        group.sort(key=lambda node: node.id)
+    return by_parent
+
+
 async def _persist_turn(
     thread_id: str,
     message: str,
@@ -84,7 +224,9 @@ async def _persist_turn(
     checkpoint_id: str | None,
     parent_checkpoint_id: str | None,
     sources: list[dict[str, str]] | None = None,
-) -> None:
+    input_checkpoint_id: str | None = None,
+    persist_human: bool = True,
+) -> tuple[ChatMessageDocument | None, ChatMessageDocument]:
     """Persist the human message and AI response to MongoDB.
 
     Saves both messages as `ChatMessageDocument` records using the
@@ -96,6 +238,10 @@ async def _persist_turn(
     the first turn in a thread. Two turns that branch from the same
     point share the same `parent_checkpoint_id`.
 
+    Regenerating an answer passes `persist_human=False`: the human message
+    is not duplicated, so a turn is one human message with one or more AI
+    answers hanging off it, which is also how the frontend renders it.
+
     Args:
         thread_id(str): The thread ID string.
         message(str): The user's message content.
@@ -105,23 +251,36 @@ async def _persist_turn(
             checkpoint ID, or `None` for the first turn.
         sources(list[dict[str, str]] | None): Optional file references
             produced by tools during the response generation.
+        input_checkpoint_id(str | None): The turn's `input` checkpoint,
+            needed to regenerate the first answer of a thread.
+        persist_human(bool): Whether to insert the human message. `False`
+            when regenerating, since the original one is reused.
+
+    Returns:
+        tuple[ChatMessageDocument | None, ChatMessageDocument]: The stored
+            human message (`None` when regenerating) and the stored AI message.
     """
     thread_oid = PydanticObjectId(thread_id)
-    await ChatMessageDocument(
+    human: ChatMessageDocument | None = None
+    if persist_human:
+        human = await ChatMessageDocument(
+            thread_id=thread_oid,
+            checkpoint_id=checkpoint_id,
+            parent_checkpoint_id=parent_checkpoint_id,
+            input_checkpoint_id=input_checkpoint_id,
+            role="human",
+            content=message,
+        ).insert()
+    ai = await ChatMessageDocument(
         thread_id=thread_oid,
         checkpoint_id=checkpoint_id,
         parent_checkpoint_id=parent_checkpoint_id,
-        role="human",
-        content=message,
-    ).insert()
-    await ChatMessageDocument(
-        thread_id=thread_oid,
-        checkpoint_id=checkpoint_id,
-        parent_checkpoint_id=parent_checkpoint_id,
+        input_checkpoint_id=input_checkpoint_id,
         role="ai",
         content=response,
         sources=sources,
     ).insert()
+    return human, ai
 
 
 async def _prepare_safe_stream(
@@ -202,6 +361,144 @@ async def _prepare_safe_stream(
     ), parent_id
 
 
+async def _publish_turn(
+    thread_id: str,
+    human: ChatMessageDocument | None,
+    ai: ChatMessageDocument,
+    fork: ForkPoint | None,
+) -> ServerSentEvent:
+    """Report where a freshly stored answer landed in the thread.
+
+    An ordinary turn is reported as-is. A regeneration also moves the
+    selected branch onto the new answer, which happens only now that the
+    replacement is safely stored, so a failed stream leaves the thread
+    showing the answer it already had.
+
+    Args:
+        thread_id(str): The thread ID string.
+        human(ChatMessageDocument | None): The stored human message, `None`
+            when regenerating.
+        ai(ChatMessageDocument): The stored AI message.
+        fork(ForkPoint | None): The fork this run was generated from, `None`
+            for an ordinary turn.
+
+    Returns:
+        ServerSentEvent: The `message_saved` event, carrying the answer's
+            place among its siblings when it superseded one.
+    """
+    if fork is None or fork.supersedes is None:
+        return sse_message_saved(
+            str(ai.id),
+            human_message_id=str(human.id) if human else None,
+        )
+
+    position = await _supersede(
+        PydanticObjectId(thread_id), superseded=fork.supersedes, replacement=ai
+    )
+    return sse_message_saved(
+        str(ai.id),
+        variant_index=position.index,
+        variant_count=position.count,
+        prev_variant_id=str(position.prev_id) if position.prev_id else None,
+    )
+
+
+async def _resolve_entry_point(
+    agent: Any,
+    config: RunnableConfig,
+    message: str,
+    fork: ForkPoint | None,
+) -> tuple[RunnableConfig, str | None, dict[str, Any] | None]:
+    """Decide where the graph re-enters and what it is fed.
+
+    An ordinary turn recovers a resting checkpoint to stream from and sends
+    the message. A regeneration takes the fork point verbatim, and replays
+    the pending model task instead of sending the message again when the
+    fork has nothing earlier to resume from.
+
+    Args:
+        agent(Any): The agent instance to query for state and history.
+        config(RunnableConfig): The runnable config for this turn.
+        message(str): The user's chat message.
+        fork(ForkPoint | None): Where to re-enter the graph when regenerating
+            an answer. `None` for an ordinary turn.
+
+    Returns:
+        tuple[RunnableConfig, str | None, dict[str, Any] | None]: The config
+            to stream with, the previous turn's resting checkpoint ID, and
+            the graph input (`None` to replay).
+    """
+    if fork is None:
+        (
+            safe_config,
+            parent_checkpoint_id,
+        ) = await _prepare_safe_stream(agent, config)
+        stream_input: dict[str, Any] | None = {
+            "messages": [{"role": "user", "content": message}]
+        }
+    else:
+        # A fork target is a resting checkpoint by construction, so
+        # `_prepare_safe_stream` would pass it straight through. It is
+        # skipped so the new answer inherits its sibling group verbatim
+        # rather than whatever the graph resolves to.
+        safe_config = _copy_config_with_checkpoint_id(config, fork.checkpoint_id)
+        parent_checkpoint_id = fork.parent_checkpoint_id
+        stream_input = (
+            None
+            if fork.replay
+            else {"messages": [{"role": "user", "content": message}]}
+        )
+    return safe_config, parent_checkpoint_id, stream_input
+
+
+async def _supersede(
+    thread_id: PydanticObjectId,
+    superseded: PydanticObjectId,
+    replacement: ChatMessageDocument,
+) -> VariantPosition:
+    """Move the selected branch onto a freshly regenerated answer.
+
+    Everything that grew out of the superseded answer leaves with it, having
+    been written in reply to an answer the thread no longer gives. One range
+    update covers them: a turn is always stored after the one it follows, so
+    they all have a higher ID. The extra messages it catches are siblings and
+    rival branches, already inactive. The question the answers belong to was
+    stored earlier, below the range.
+
+    Nothing is deleted: `select_variant` puts the superseded answer, and the
+    turns that followed it, back on the conversation.
+
+    Args:
+        thread_id(PydanticObjectId): The thread being updated.
+        superseded(PydanticObjectId): The answer being regenerated.
+        replacement(ChatMessageDocument): The answer that replaces it.
+
+    Returns:
+        VariantPosition: The replacement's place among its siblings.
+    """
+    await ChatMessageDocument.find(
+        ChatMessageDocument.thread_id == thread_id,
+        {"_id": {"$gte": superseded, "$ne": replacement.id}},
+    ).update({"$set": {"active": False}})
+
+    await ChatThreadDocument.find_one(ChatThreadDocument.id == thread_id).update(
+        {"$set": {"has_variants": True}}
+    )
+
+    siblings = (
+        await ChatMessageDocument.find(
+            ChatMessageDocument.thread_id == thread_id,
+            {"role": "ai", "parent_checkpoint_id": replacement.parent_checkpoint_id},
+        )
+        .project(ChatMessageView)
+        .to_list()
+    )
+    return _variant_positions(siblings).get(
+        replacement.id,  # type: ignore[arg-type]
+        VariantPosition(index=1, count=1, prev_id=None, next_id=None),
+    )
+
+
 def _truncate_title(message: str) -> str:
     """Truncate a user message to use as a fallback title.
 
@@ -216,6 +513,36 @@ def _truncate_title(message: str) -> str:
     if len(message) <= chat_settings.TITLE_MAX_LEN:
         return message
     return message[: chat_settings.TITLE_MAX_LEN - 3].rsplit(" ", 1)[0] + "..."
+
+
+def _variant_positions(
+    group: list[ChatMessageView],
+) -> dict[PydanticObjectId, VariantPosition]:
+    """Number a group of sibling answers for the pager.
+
+    Ordered by `_id`, so the numbering matches the order they were
+    generated in and stays stable as more are added.
+
+    Args:
+        group(list[ChatMessageView]): Answers sharing a
+            `parent_checkpoint_id`.
+
+    Returns:
+        dict[PydanticObjectId, VariantPosition]: Empty when the question was
+            answered only once, since there is then nothing to page through.
+    """
+    if len(group) < 2:
+        return {}
+    ordered = sorted(group, key=lambda node: node.id)
+    return {
+        node.id: VariantPosition(
+            index=position + 1,
+            count=len(ordered),
+            prev_id=ordered[position - 1].id if position else None,
+            next_id=(ordered[position + 1].id if position + 1 < len(ordered) else None),
+        )
+        for position, node in enumerate(ordered)
+    }
 
 
 async def create_chat_stream(
@@ -350,7 +677,11 @@ async def get_thread_messages(
     thread: ChatThreadDocument,
     limit: int,
     before: PydanticObjectId | None = None,
-) -> tuple[list[ChatMessageResponse], PydanticObjectId | None]:
+) -> tuple[
+    list[ChatMessageDocument],
+    dict[PydanticObjectId, VariantPosition],
+    PydanticObjectId | None,
+]:
     """Retrieve one page of conversation messages for a chat thread.
 
     Reads from the `ChatMessageDocument` collection, which stores
@@ -368,6 +699,11 @@ async def get_thread_messages(
     writes the human and ai message of a turn back-to-back and they can
     share a timestamp. It also keeps this to a single-field sort.
 
+    Only messages on the selected branch are returned. Answers the user
+    regenerated away from, and the turns that followed them, are skipped —
+    which keeps working with the `_id` keyset, since the selected branch is
+    still an ordered subsequence of the thread.
+
     Args:
         thread(ChatThreadDocument): The verified chat thread document.
         limit(int): The maximum number of messages to return.
@@ -375,16 +711,19 @@ async def get_thread_messages(
             back from. Only messages strictly older than it are returned.
 
     Returns:
-        tuple[list[ChatMessageResponse], PydanticObjectId | None]: The page
-            of messages in chronological order, and the cursor to pass as
-            `before` to fetch the older page (`None` when the history is
-            exhausted).
+        tuple[list[ChatMessageDocument], dict[PydanticObjectId, VariantPosition],
+            PydanticObjectId | None]: The page of messages in chronological
+            order, the pager metadata of those answers that have siblings, and
+            the cursor to pass as `before` to fetch the older page (`None` when
+            the history is exhausted).
 
     Raises:
         HTTPException: 422 if `before` does not identify a message of this
             thread.
     """
-    query = ChatMessageDocument.find(ChatMessageDocument.thread_id == thread.id)
+    query = ChatMessageDocument.find(
+        ChatMessageDocument.thread_id == thread.id, SELECTED_BRANCH_FILTER
+    )
 
     if before is not None:
         anchor = await ChatMessageDocument.find_one(
@@ -407,18 +746,13 @@ async def get_thread_messages(
 
     next_cursor = messages[0].id if has_more and messages else None
 
-    return (
-        [
-            ChatMessageResponse(
-                id=msg.id,  # type: ignore[arg-type]
-                role=msg.role,
-                content=msg.content,
-                sources=msg.sources,
-            )
-            for msg in messages
-        ],
-        next_cursor,
+    variants = (
+        await _annotate_variants(thread.id, messages)  # type: ignore[arg-type]
+        if thread.has_variants
+        else {}
     )
+
+    return messages, variants, next_cursor
 
 
 async def get_user_threads(
@@ -452,6 +786,10 @@ async def resume_chat_stream(
 
     Updates the thread timestamp before streaming.
 
+    In a thread with regenerated answers the graph's most recent checkpoint
+    can belong to a branch the user has since switched away from, so the
+    turn is explicitly continued from the end of the selected branch.
+
     Args:
         thread(ChatThreadDocument): The verified chat thread document.
         message(str): The user's chat message.
@@ -461,49 +799,212 @@ async def resume_chat_stream(
         ServerSentEvent: SSE-formatted events (token, error, done).
     """
     await update_thread_timestamp(thread)
+    resume_checkpoint_id = (
+        await _active_leaf_checkpoint_id(thread.id)  # type: ignore[arg-type]
+        if thread.has_variants
+        else None
+    )
     async for event in stream_agent_response(
-        message, str(thread.id), str(thread.repo_id), user
+        message,
+        str(thread.id),
+        str(thread.repo_id),
+        user,
+        resume_checkpoint_id=resume_checkpoint_id,
     ):
         yield event
     yield sse_done()
 
 
+async def retry_message_stream(
+    thread: ChatThreadDocument,
+    target: ChatMessageDocument,
+    prompt: str,
+    user: User,
+) -> AsyncGenerator[ServerSentEvent, None]:
+    """Generate another answer to an already-answered question.
+
+    The graph is re-entered at the checkpoint the original answer was
+    generated from, so the model sees the same conversation it saw the first
+    time. Which checkpoint that is depends on where in the thread the answer
+    sits:
+
+    - Normally it is the resting checkpoint of the previous turn. That
+      predates the question, so the question is sent again to reach the same
+      state, and no second copy of it is stored.
+    - The first answer of a thread has no previous turn. Its `input`
+      checkpoint — which already holds the question — is replayed instead.
+
+    Args:
+        thread(ChatThreadDocument): The verified chat thread document.
+        target(ChatMessageDocument): The answer being regenerated, as
+            returned by `get_verified_retry_target`.
+        prompt(str): The content of the question it answers.
+        user(User): The authenticated user.
+
+    Yields:
+        ServerSentEvent: SSE-formatted events (token, tool, message_saved,
+            error, done).
+    """
+    replay = target.parent_checkpoint_id is None
+    checkpoint_id = (
+        target.input_checkpoint_id if replay else target.parent_checkpoint_id
+    )
+    fork = ForkPoint(
+        checkpoint_id=checkpoint_id,  # type: ignore[arg-type]
+        parent_checkpoint_id=target.parent_checkpoint_id,
+        replay=replay,
+        supersedes=target.id,
+        input_checkpoint_id=target.input_checkpoint_id if replay else None,
+    )
+
+    await update_thread_timestamp(thread)
+    async for event in stream_agent_response(
+        prompt, str(thread.id), str(thread.repo_id), user, fork=fork
+    ):
+        yield event
+    yield sse_done()
+
+
+async def select_variant(
+    thread: ChatThreadDocument,
+    message_id: PydanticObjectId,
+    limit: int,
+) -> tuple[
+    list[ChatMessageDocument],
+    dict[PydanticObjectId, VariantPosition],
+    PydanticObjectId | None,
+]:
+    """Switch the conversation onto one of a question's other answers.
+
+    The chosen answer, and the turns that followed it last time it was
+    selected, become the conversation again. Everything belonging to the
+    sibling answers is hidden. Follow-ups are not discarded — each answer
+    keeps the conversation that grew out of it, and switching back restores
+    it.
+
+    Args:
+        thread(ChatThreadDocument): The verified chat thread document.
+        message_id(PydanticObjectId): The answer to switch to.
+        limit(int): The maximum number of messages to return.
+
+    Returns:
+        tuple[list[ChatMessageDocument], dict[PydanticObjectId, VariantPosition],
+            PydanticObjectId | None]: The newest page of the conversation as it
+            now reads, the pager metadata of those answers that have siblings,
+            and the cursor to pass as `before` to fetch the older page (`None`
+            when the history is exhausted).
+
+    Raises:
+        HTTPException: 404 if the ID doesn't identify an answer in this thread.
+    """
+    by_parent = await _load_thread_nodes(thread.id)  # type: ignore[arg-type]
+
+    target = next(
+        (
+            node
+            for group in by_parent.values()
+            for node in group
+            if node.id == message_id and node.role == "ai"
+        ),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found.",
+        )
+
+    siblings = by_parent[target.parent_checkpoint_id]
+    # The question comes first in its group: it was stored before any of the
+    # answers to it, including ones generated much later.
+    lower_bound = siblings[0].id
+
+    keep = [node.id for node in siblings if node.role == "human"]
+    keep.append(target.id)
+
+    # Walk down the chosen answer's own follow-ups to the end of the branch.
+    cursor = target.checkpoint_id
+    while cursor is not None:
+        children = by_parent.get(cursor, [])
+        answers = [child for child in children if child.role == "ai"]
+        if not answers:
+            break
+        chosen = next(
+            (child for child in reversed(answers) if child.active), answers[-1]
+        )
+        keep.extend(child.id for child in children if child.role == "human")
+        keep.append(chosen.id)
+        cursor = chosen.checkpoint_id
+
+    # The two ranges overlap, so the order matters.
+    await ChatMessageDocument.find(
+        ChatMessageDocument.thread_id == thread.id,
+        {"_id": {"$gte": lower_bound}},
+    ).update({"$set": {"active": False}})
+    await ChatMessageDocument.find(
+        ChatMessageDocument.thread_id == thread.id,
+        {"_id": {"$in": keep}},
+    ).update({"$set": {"active": True}})
+
+    return await get_thread_messages(thread, limit)
+
+
 async def stream_agent_response(
-    message: str, thread_id: str, repo_id: str, user: User
+    message: str,
+    thread_id: str,
+    repo_id: str,
+    user: User,
+    fork: ForkPoint | None = None,
+    resume_checkpoint_id: str | None = None,
 ) -> AsyncIterable[ServerSentEvent]:
     """Stream agent response tokens as SSE-formatted strings.
 
-    This generator yields only token and error events. The caller is
+    This generator yields token, tool, and error events, plus the
+    `message_saved` event once the turn is stored. The caller is
     responsible for emitting lifecycle events (`chat_id`, `title`,
     `done`). After the stream completes, both the user message and
     the full AI response are persisted to `ChatMessageDocument` with
     LangGraph checkpoint IDs for history tracking and branch support.
+
+    Passing a `fork` regenerates an existing answer: the graph re-enters at
+    the given checkpoint so the model sees the same context it saw the first
+    time, and the resulting answer is stored alongside the original rather
+    than replacing it.
 
     Args:
         message(str): The user's chat message.
         thread_id(str): The LangGraph thread ID for conversation persistence.
         repo_id(str): The repository ID for scoping search results.
         user(User): The authenticated user, used to populate the chat context.
+        fork(ForkPoint | None): Where to re-enter the graph when regenerating
+            an answer. `None` for an ordinary turn.
+        resume_checkpoint_id(str | None): The checkpoint to continue the
+            conversation from, when the selected branch is not the one the
+            graph most recently wrote to.
 
     Yields:
-        ServerSentEvent: SSE-formatted events (token, error).
+        ServerSentEvent: SSE-formatted events (token, tool, message_saved, error).
     """
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "repo_id": repo_id},
         "recursion_limit": chat_settings.AGENT_RECURSION_LIMIT,
     }
+    if resume_checkpoint_id is not None:
+        config = _copy_config_with_checkpoint_id(config, resume_checkpoint_id)
+
     agent = get_agent()
     response: str = ""
     response_sources: list[dict[str, str]] = []
     checkpoint_id: str | None = None
+    input_checkpoint_id: str | None = fork.input_checkpoint_id if fork else None
 
     try:
-        (
-            safe_config,
-            parent_checkpoint_id,
-        ) = await _prepare_safe_stream(agent, config)
+        safe_config, parent_checkpoint_id, stream_input = await _resolve_entry_point(
+            agent, config, message, fork
+        )
+
         async for step in agent.astream(  # type: ignore[call-overload]
-            {"messages": [{"role": "user", "content": message}]},
+            stream_input,
             config=safe_config,
             context=ChatContext(username=user.name),
             stream_mode=["checkpoints", "messages", "tasks"],
@@ -537,10 +1038,21 @@ async def stream_agent_response(
                     yield sse_token(token)
             elif step["type"] == "checkpoints":
                 data = step["data"]
-                if data["config"]["configurable"][
-                    "checkpoint_ns"
-                ] == "" and not data.get("next"):
+                if data["config"]["configurable"]["checkpoint_ns"] != "":
+                    continue
+                if not data.get("next"):
                     checkpoint_id = data["config"]["configurable"]["checkpoint_id"]
+                elif (
+                    input_checkpoint_id is None
+                    and data.get("metadata", {}).get("source") == "input"
+                ):
+                    # Recorded now because it cannot be found again later:
+                    # the checkpointer's history is scoped to the thread, not
+                    # to a branch, so once this turn has siblings a search
+                    # through it can surface another branch's checkpoint.
+                    input_checkpoint_id = data["config"]["configurable"][
+                        "checkpoint_id"
+                    ]
 
     except Exception:
         logger.exception("Chat: Chat stream failed.")
@@ -548,17 +1060,27 @@ async def stream_agent_response(
         return
 
     try:
-        await _persist_turn(
+        human, ai = await _persist_turn(
             thread_id=thread_id,
             message=message,
             response=response,
             checkpoint_id=checkpoint_id,
             parent_checkpoint_id=parent_checkpoint_id,
             sources=_deduplicate_sources(response_sources) or None,
+            input_checkpoint_id=input_checkpoint_id,
+            persist_human=fork is None,
         )
     except Exception:
         logger.exception("Chat: Failed to persist chat messages.")
         yield sse_error("Failed to save the conversation.")
+        return
+
+    try:
+        yield await _publish_turn(thread_id, human=human, ai=ai, fork=fork)
+    except Exception:
+        logger.exception("Chat: Failed to switch to the regenerated answer.")
+        yield sse_error("Failed to save the conversation.")
+        return
 
 
 async def update_thread_timestamp(thread: ChatThreadDocument) -> ChatThreadDocument:

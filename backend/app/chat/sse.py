@@ -51,6 +51,45 @@ def sse_error(detail: str) -> ServerSentEvent:
     return ServerSentEvent(data={"error": detail}, event="error")
 
 
+def sse_message_saved(
+    message_id: str,
+    human_message_id: str | None = None,
+    variant_index: int = 1,
+    variant_count: int = 1,
+    prev_variant_id: str | None = None,
+) -> ServerSentEvent:
+    """Format the persisted identity of a streamed turn as an SSE event.
+
+    Emitted once the turn has been written to MongoDB, so the frontend can
+    address the message by its stored ID (to regenerate it) and render its
+    variant pager without refetching the page.
+
+    Args:
+        message_id(str): The string ObjectId of the stored AI message.
+        human_message_id(str | None): The string ObjectId of the stored
+            human message, absent when regenerating (the original human
+            message is reused rather than duplicated).
+        variant_index(int): The 1-based position of this answer among its
+            siblings.
+        variant_count(int): The total number of answers for this turn.
+        prev_variant_id(str | None): The string ObjectId of the preceding
+            sibling, absent when this is the only answer.
+
+    Returns:
+        ServerSentEvent: An SSE object with event type `message_saved`.
+    """
+    data: dict[str, Any] = {
+        "message_id": message_id,
+        "variant_index": variant_index,
+        "variant_count": variant_count,
+    }
+    if human_message_id is not None:
+        data["human_message_id"] = human_message_id
+    if prev_variant_id is not None:
+        data["prev_variant_id"] = prev_variant_id
+    return ServerSentEvent(data=data, event="message_saved")
+
+
 def sse_title(title: str) -> ServerSentEvent:
     """Format a generated chat title as an SSE event.
 

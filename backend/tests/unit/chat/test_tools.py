@@ -247,6 +247,17 @@ async def test_retrieve_messages_returns_formatted_output() -> None:
     assert "#2 [ai]: Hi there!" in result
 
 
+async def test_retrieve_messages_scoped_to_the_selected_branch() -> None:
+    """Answers the user regenerated away from must not be recalled."""
+    msgs = [_mock_msg("human", "Hello")]
+
+    with _patch_find_messages(msgs) as mock_find:
+        await _retrieve(runtime=_make_runtime())
+
+    call_args = mock_find.call_args[0][0]
+    assert call_args["active"] is True
+
+
 # ---------------------------------------------------------------------------
 # search_repo_docs
 # ---------------------------------------------------------------------------

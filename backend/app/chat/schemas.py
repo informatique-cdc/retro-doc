@@ -37,16 +37,37 @@ class ChatThreadListResponse(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
+    """A stored chat message as returned by the API.
+
+    The variant fields are populated only for an assistant message that has
+    been regenerated, so an unbranched thread's payload is unchanged.
+    """
+
     id: PydanticObjectId
     role: str
     content: str
     sources: list[dict[str, str]] | None = None
+
+    variant_index: int | None = None
+    """The 1-based position of this answer among its siblings."""
+
+    variant_count: int | None = None
+    prev_variant_id: PydanticObjectId | None = None
+    next_variant_id: PydanticObjectId | None = None
 
 
 class ChatThreadMessagesResponse(BaseModel):
     chat_id: PydanticObjectId
     messages: list[ChatMessageResponse]
     next_cursor: PydanticObjectId | None = None
+
+
+class RetryMessageRequest(BaseModel):
+    message_id: PydanticObjectId
+
+
+class SelectVariantRequest(BaseModel):
+    message_id: PydanticObjectId
 
 
 class UpdateChatTitleRequest(BaseModel):

@@ -5,28 +5,29 @@ with mocks used only where external dependencies or specific call
 verification are needed.
 """
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from beanie import PydanticObjectId
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from app.auth.schemas import User
 from app.chat.config import chat_settings
-from app.chat.models import ChatMessageDocument, ChatThreadDocument
-from app.chat.schemas import ChatMessageResponse
+from app.chat.models import ChatMessageDocument, ChatMessageView, ChatThreadDocument
 from app.chat.service import (
+    ForkPoint,
     _copy_config_with_checkpoint_id,
     _deduplicate_sources,
     _persist_turn,
     _prepare_safe_stream,
     _truncate_title,
+    _variant_positions,
     create_chat_stream,
     create_thread,
     delete_thread,
@@ -35,6 +36,8 @@ from app.chat.service import (
     get_thread_messages,
     get_user_threads,
     resume_chat_stream,
+    retry_message_stream,
+    select_variant,
     stream_agent_response,
     update_thread_timestamp,
     update_thread_title,
@@ -519,10 +522,10 @@ async def test_get_thread_messages_chronological(
     persisted_message_docs: list[ChatMessageDocument],
 ) -> None:
     """Returns messages in chronological order."""
-    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+    messages, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
     assert len(messages) == 2
-    assert isinstance(messages[0], ChatMessageResponse)
+    assert isinstance(messages[0], ChatMessageDocument)
     assert messages[0].role == "human"
     assert messages[0].content == "Hello"
     assert messages[1].role == "ai"
@@ -534,7 +537,7 @@ async def test_get_thread_messages_empty(
     persisted_thread_doc: ChatThreadDocument,
 ) -> None:
     """Returns an empty page when no messages exist."""
-    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+    messages, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
     assert messages == []
     assert next_cursor is None
@@ -547,7 +550,7 @@ async def test_get_thread_messages_returns_newest_page(
     """Without a cursor, the most recent `limit` messages are returned."""
     await persist_messages(persisted_thread_doc.id, 10)
 
-    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+    messages, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
 
     assert [m.content for m in messages] == ["Message 7", "Message 8", "Message 9"]
     assert next_cursor == messages[0].id
@@ -560,7 +563,7 @@ async def test_get_thread_messages_no_cursor_at_boundary(
     """No cursor is returned when the page exactly covers the history."""
     await persist_messages(persisted_thread_doc.id, 3)
 
-    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+    messages, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=3)
 
     assert len(messages) == 3
     assert next_cursor is None
@@ -573,8 +576,8 @@ async def test_get_thread_messages_before_returns_older_page(
     """`before` returns the strictly older page, with no overlap."""
     await persist_messages(persisted_thread_doc.id, 10)
 
-    first, cursor = await get_thread_messages(persisted_thread_doc, limit=3)
-    second, next_cursor = await get_thread_messages(
+    first, _, cursor = await get_thread_messages(persisted_thread_doc, limit=3)
+    second, _, next_cursor = await get_thread_messages(
         persisted_thread_doc, limit=3, before=cursor
     )
 
@@ -590,10 +593,10 @@ async def test_get_thread_messages_walking_cursors_covers_history(
     """Walking cursors to exhaustion yields every message exactly once."""
     await persist_messages(persisted_thread_doc.id, 10)
 
-    collected: list[ChatMessageResponse] = []
+    collected: list[ChatMessageDocument] = []
     cursor: PydanticObjectId | None = None
     while True:
-        page, cursor = await get_thread_messages(
+        page, _, cursor = await get_thread_messages(
             persisted_thread_doc, limit=3, before=cursor
         )
         collected = page + collected
@@ -621,10 +624,10 @@ async def test_get_thread_messages_paginates_across_identical_timestamps(
             created_at=same_time,
         ).insert()
 
-    collected: list[ChatMessageResponse] = []
+    collected: list[ChatMessageDocument] = []
     cursor: PydanticObjectId | None = None
     while True:
-        page, cursor = await get_thread_messages(
+        page, _, cursor = await get_thread_messages(
             persisted_thread_doc, limit=2, before=cursor
         )
         collected = page + collected
@@ -656,7 +659,7 @@ async def test_get_thread_messages_orders_by_insertion_not_timestamp(
             created_at=created_at,
         ).insert()
 
-    page, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+    page, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
     assert [m.content for m in page] == ["Message 0", "Message 1"]
     assert next_cursor is None
@@ -670,7 +673,7 @@ async def test_get_thread_messages_excludes_other_threads(
     await persist_messages(persisted_thread_doc.id, 2)
     await persist_messages(PydanticObjectId(), 5)
 
-    messages, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
+    messages, _, next_cursor = await get_thread_messages(persisted_thread_doc, limit=10)
 
     assert len(messages) == 2
     assert next_cursor is None
@@ -931,3 +934,677 @@ async def test_resume_chat_stream_yields_events_and_done(
         ]
 
     assert results[-1].event == "done"
+
+
+# ---------------------------------------------------------------------------
+# Branch helpers
+# ---------------------------------------------------------------------------
+
+
+def _node(oid: str) -> ChatMessageView:
+    """A minimal projected node, for the pure numbering helper."""
+    return ChatMessageView.model_validate({"_id": PydanticObjectId(oid), "role": "ai"})
+
+
+# ---------------------------------------------------------------------------
+# _variant_positions
+# ---------------------------------------------------------------------------
+
+
+def test_variant_positions_ignores_a_question_answered_once() -> None:
+    """A single answer has nothing to page through."""
+    assert _variant_positions([_node("000000000000000000000001")]) == {}
+
+
+def test_variant_positions_numbers_by_insertion_order() -> None:
+    """Numbering follows `_id`, so it matches the order answers were generated."""
+    first = _node("000000000000000000000001")
+    second = _node("000000000000000000000002")
+    third = _node("000000000000000000000003")
+
+    positions = _variant_positions([third, first, second])
+
+    assert positions[first.id].index == 1
+    assert positions[second.id].index == 2
+    assert positions[third.id].index == 3
+    assert positions[second.id].count == 3
+    assert positions[second.id].prev_id == first.id
+    assert positions[second.id].next_id == third.id
+    assert positions[first.id].prev_id is None
+    assert positions[third.id].next_id is None
+
+
+# ---------------------------------------------------------------------------
+# get_thread_messages: branches
+# ---------------------------------------------------------------------------
+
+
+async def test_get_thread_messages_excludes_superseded_answers(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Answers the user regenerated away from are no longer the conversation."""
+
+    messages, _, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A3"]
+
+
+async def test_get_thread_messages_annotates_regenerated_answers(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A regenerated answer carries its position among its siblings."""
+
+    messages, variants, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+    answer = next(msg for msg in messages if msg.content == "A2")
+    position = variants[answer.id]  # type: ignore[index]
+
+    assert position.index == 2
+    assert position.count == 2
+    assert position.prev_id == branched_thread["a1"].id
+    assert position.next_id is None
+
+
+async def test_get_thread_messages_omits_pager_for_a_turn_answered_once(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A turn answered once has no pager, even in a branched thread."""
+
+    messages, variants, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+    answer = next(msg for msg in messages if msg.content == "A3")
+
+    assert answer.id not in variants
+
+
+async def test_get_thread_messages_skips_variant_lookup_when_unbranched(
+    persisted_thread_doc: ChatThreadDocument,
+    persisted_message_docs: list[ChatMessageDocument],
+) -> None:
+    """A thread that has never been regenerated costs no extra query."""
+    with patch(
+        "app.chat.service._annotate_variants", new_callable=AsyncMock
+    ) as mock_annotate:
+        await get_thread_messages(persisted_thread_doc, limit=10)
+
+    mock_annotate.assert_not_awaited()
+
+
+async def test_get_thread_messages_accepts_a_cursor_on_a_superseded_message(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A cursor held from before a branch switch still pages, rather than 404ing."""
+
+    messages, _, _ = await get_thread_messages(
+        persisted_thread_doc, limit=10, before=branched_thread["a1"].id
+    )
+
+    assert [msg.content for msg in messages] == ["Q1"]
+
+
+# ---------------------------------------------------------------------------
+# _persist_turn: regenerating
+# ---------------------------------------------------------------------------
+
+
+async def test_persist_turn_stores_only_the_answer_when_regenerating(
+    persisted_thread_doc: ChatThreadDocument,
+) -> None:
+    """The question is not duplicated: one question, several answers under it."""
+    human, ai = await _persist_turn(
+        thread_id=str(persisted_thread_doc.id),
+        message="Q1",
+        response="A2",
+        checkpoint_id="cB",
+        parent_checkpoint_id=None,
+        persist_human=False,
+    )
+
+    stored = await ChatMessageDocument.find(
+        ChatMessageDocument.thread_id == persisted_thread_doc.id
+    ).to_list()
+
+    assert human is None
+    assert [doc.id for doc in stored] == [ai.id]
+
+
+async def test_persist_turn_stores_the_input_checkpoint(
+    persisted_thread_doc: ChatThreadDocument,
+) -> None:
+    """The turn records where it started, since it cannot be found again later."""
+    _, ai = await _persist_turn(
+        thread_id=str(persisted_thread_doc.id),
+        message="Q1",
+        response="A1",
+        checkpoint_id="cA",
+        parent_checkpoint_id=None,
+        input_checkpoint_id="cIn",
+    )
+
+    assert ai.input_checkpoint_id == "cIn"
+
+
+# ---------------------------------------------------------------------------
+# stream_agent_response: forking
+# ---------------------------------------------------------------------------
+
+
+async def _collect_fork_events(
+    thread_id: str, fork: ForkPoint, user: User, message: str = "Q1"
+) -> list[Any]:
+    """Collect all SSE events from a regenerating `stream_agent_response`."""
+    return [
+        event
+        async for event in stream_agent_response(
+            message, thread_id, "rid", user, fork=fork
+        )
+    ]
+
+
+async def test_stream_agent_response_reenters_at_the_fork_checkpoint(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+) -> None:
+    """A regenerating run resumes the graph from the given checkpoint."""
+    agent = fake_agent(["A2"])
+    fork = ForkPoint(checkpoint_id="cPrev", parent_checkpoint_id="cPrev")
+
+    with (
+        patch("app.chat.service.get_agent", return_value=agent),
+        patch("app.chat.service._persist_turn", new_callable=AsyncMock),
+        patch.object(agent, "astream", wraps=agent.astream) as spy,
+    ):
+        await _collect_fork_events(str(persisted_thread_doc.id), fork, user)
+
+    call_args, call_kwargs = spy.call_args
+    assert call_args[0] == {"messages": [{"role": "user", "content": "Q1"}]}
+    assert call_kwargs["config"]["configurable"]["checkpoint_id"] == "cPrev"
+
+
+async def test_stream_agent_response_skips_recovery_when_forking(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+) -> None:
+    """The fork point is taken verbatim, so the variant joins the right group."""
+    agent = fake_agent(["A2"])
+    fork = ForkPoint(checkpoint_id="cPrev", parent_checkpoint_id="cPrev")
+
+    with (
+        patch("app.chat.service.get_agent", return_value=agent),
+        patch("app.chat.service._persist_turn", new_callable=AsyncMock),
+        patch(
+            "app.chat.service._prepare_safe_stream", new_callable=AsyncMock
+        ) as mock_prepare,
+    ):
+        await _collect_fork_events(str(persisted_thread_doc.id), fork, user)
+
+    mock_prepare.assert_not_awaited()
+
+
+async def test_stream_agent_response_replays_a_root_turn(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+) -> None:
+    """The first turn of a thread is replayed rather than sent again."""
+    agent = fake_agent(["A1", "A2"])
+    thread_id = str(persisted_thread_doc.id)
+
+    with (
+        patch("app.chat.service.get_agent", return_value=agent),
+        patch("app.chat.service._persist_turn", new_callable=AsyncMock),
+    ):
+        await _collect_stream_events("Q1", thread_id, "rid", user)
+        state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+        input_checkpoint_id = [
+            snapshot.config["configurable"]["checkpoint_id"]
+            async for snapshot in agent.aget_state_history(
+                {"configurable": {"thread_id": thread_id}},
+                filter={"source": "input"},
+            )
+        ][0]
+        fork = ForkPoint(
+            checkpoint_id=input_checkpoint_id,
+            parent_checkpoint_id=None,
+            replay=True,
+            input_checkpoint_id=input_checkpoint_id,
+        )
+        with patch.object(agent, "astream", wraps=agent.astream) as spy:
+            await _collect_fork_events(thread_id, fork, user)
+
+    assert spy.call_args[0][0] is None
+    assert [msg.text for msg in state.values["messages"]] == ["Q1", "A1"]
+
+
+async def test_stream_agent_response_reproduces_the_context_when_regenerating(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+) -> None:
+    """The model sees the same conversation it saw the first time, once only.
+
+    The regenerated turn re-sends the question from the *previous* turn's
+    checkpoint, so the graph ends up with one copy of it, not two.
+    """
+    agent = fake_agent(["A1", "A2", "A2-again"])
+    thread_id = str(persisted_thread_doc.id)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    with (
+        patch("app.chat.service.get_agent", return_value=agent),
+        patch("app.chat.service._persist_turn", new_callable=AsyncMock),
+    ):
+        await _collect_stream_events("Q1", thread_id, "rid", user)
+        first_turn = (await agent.aget_state(config)).config["configurable"][  # type: ignore[arg-type]
+            "checkpoint_id"
+        ]
+        await _collect_stream_events("Q2", thread_id, "rid", user)
+
+        fork = ForkPoint(checkpoint_id=first_turn, parent_checkpoint_id=first_turn)
+        await _collect_fork_events(thread_id, fork, user, message="Q2")
+
+    state = await agent.aget_state(config)  # type: ignore[arg-type]
+    assert [msg.text for msg in state.values["messages"]] == [
+        "Q1",
+        "A1",
+        "Q2",
+        "A2-again",
+    ]
+
+
+async def test_stream_agent_response_supersedes_the_regenerated_answer(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The old answer and everything after it leave the conversation."""
+    agent = fake_agent(["A4"])
+    fork = ForkPoint(
+        checkpoint_id="cB",
+        parent_checkpoint_id="cB",
+        supersedes=branched_thread["a3"].id,
+    )
+
+    with patch("app.chat.service.get_agent", return_value=agent):
+        await _collect_fork_events(
+            str(persisted_thread_doc.id), fork, user, message="Q2"
+        )
+
+    messages, _, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A4"]
+
+
+async def test_stream_agent_response_detaches_the_follow_ups_it_regenerates_past(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Regenerating mid-conversation takes the turns that replied to it too."""
+    agent = fake_agent(["A2-again"])
+    fork = ForkPoint(
+        checkpoint_id="cIn",
+        parent_checkpoint_id=None,
+        supersedes=branched_thread["a2"].id,
+    )
+
+    with patch("app.chat.service.get_agent", return_value=agent):
+        await _collect_fork_events(str(persisted_thread_doc.id), fork, user)
+
+    messages, _, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert [msg.content for msg in messages] == ["Q1", "A2-again"]
+
+
+async def test_stream_agent_response_reports_the_new_variant_position(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The client learns the pager position without refetching the thread."""
+    agent = fake_agent(["A4"])
+    fork = ForkPoint(
+        checkpoint_id="cB",
+        parent_checkpoint_id="cB",
+        supersedes=branched_thread["a3"].id,
+    )
+
+    with patch("app.chat.service.get_agent", return_value=agent):
+        events = await _collect_fork_events(
+            str(persisted_thread_doc.id), fork, user, message="Q2"
+        )
+
+    saved = next(event for event in events if event.event == "message_saved")
+
+    assert saved.data["variant_index"] == 2
+    assert saved.data["variant_count"] == 2
+    assert saved.data["prev_variant_id"] == str(branched_thread["a3"].id)
+
+
+async def test_stream_agent_response_marks_the_thread_as_branched(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    fake_agent: Callable[..., CompiledStateGraph],  # type: ignore[type-arg]
+    persist_branch_message: Callable[..., Awaitable[ChatMessageDocument]],
+) -> None:
+    """Later reads know to look for variants."""
+    tid: PydanticObjectId = persisted_thread_doc.id  # type: ignore[assignment]
+    await persist_branch_message(tid, "human", "Q1", None, "cA", True, "cIn")
+    answer = await persist_branch_message(tid, "ai", "A1", None, "cA", True, "cIn")
+    agent = fake_agent(["A2"])
+    fork = ForkPoint(
+        checkpoint_id="cIn",
+        parent_checkpoint_id=None,
+        supersedes=answer.id,
+    )
+
+    with patch("app.chat.service.get_agent", return_value=agent):
+        await _collect_fork_events(str(tid), fork, user)
+
+    reloaded = await ChatThreadDocument.get(tid)
+
+    assert reloaded is not None
+    assert reloaded.has_variants is True
+
+
+async def test_stream_agent_response_keeps_the_old_answer_when_the_stream_fails(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A failed regeneration leaves the thread showing the answer it had."""
+    mock_agent = MagicMock()
+    mock_agent.astream = MagicMock(side_effect=RuntimeError("model down"))
+    fork = ForkPoint(
+        checkpoint_id="cB",
+        parent_checkpoint_id="cB",
+        supersedes=branched_thread["a3"].id,
+    )
+
+    with patch("app.chat.service.get_agent", return_value=mock_agent):
+        events = await _collect_fork_events(
+            str(persisted_thread_doc.id), fork, user, message="Q2"
+        )
+
+    messages, _, _ = await get_thread_messages(persisted_thread_doc, limit=10)
+
+    assert [event.event for event in events] == ["error"]
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A3"]
+
+
+# ---------------------------------------------------------------------------
+# retry_message_stream
+# ---------------------------------------------------------------------------
+
+
+async def test_retry_message_stream_forks_from_the_previous_turn(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """An answer mid-thread is regenerated from the checkpoint before it."""
+
+    with (
+        patch("app.chat.service.update_thread_timestamp", new_callable=AsyncMock),
+        patch("app.chat.service.stream_agent_response") as mock_stream,
+    ):
+        mock_stream.return_value = _make_async_gen([])
+        [
+            event
+            async for event in retry_message_stream(
+                persisted_thread_doc, branched_thread["a3"], "Q2", user
+            )
+        ]
+
+    fork = mock_stream.call_args.kwargs["fork"]
+
+    assert fork.checkpoint_id == "cB"
+    assert fork.parent_checkpoint_id == "cB"
+    assert fork.replay is False
+    assert fork.supersedes == branched_thread["a3"].id
+
+
+async def test_retry_message_stream_replays_the_first_answer_of_a_thread(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A first answer has no previous turn, so its own input is replayed."""
+
+    with (
+        patch("app.chat.service.update_thread_timestamp", new_callable=AsyncMock),
+        patch("app.chat.service.stream_agent_response") as mock_stream,
+    ):
+        mock_stream.return_value = _make_async_gen([])
+        [
+            event
+            async for event in retry_message_stream(
+                persisted_thread_doc, branched_thread["a2"], "Q1", user
+            )
+        ]
+
+    fork = mock_stream.call_args.kwargs["fork"]
+
+    assert fork.checkpoint_id == "cIn"
+    assert fork.replay is True
+    # Carried over, since replaying writes no new input checkpoint.
+    assert fork.input_checkpoint_id == "cIn"
+
+
+async def test_retry_message_stream_yields_done(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    mock_token_event: MagicMock,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Closes the stream like the other chat endpoints."""
+
+    with (
+        patch("app.chat.service.update_thread_timestamp", new_callable=AsyncMock),
+        patch("app.chat.service.stream_agent_response") as mock_stream,
+    ):
+        mock_stream.return_value = _make_async_gen([mock_token_event])
+        results = [
+            event
+            async for event in retry_message_stream(
+                persisted_thread_doc, branched_thread["a3"], "Q2", user
+            )
+        ]
+
+    assert results[-1].event == "done"
+
+
+# ---------------------------------------------------------------------------
+# select_variant
+# ---------------------------------------------------------------------------
+
+
+async def test_select_variant_switches_the_conversation_to_the_other_answer(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The chosen answer replaces the one the thread was showing."""
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert [msg.content for msg in messages] == ["Q1", "A1"]
+
+
+async def test_select_variant_keeps_the_question_visible(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The question is stored once, before every answer to it, and must survive.
+
+    Its `_id` is lower than every answer's, so the sweep that hides the
+    other branches has to start below it rather than at the chosen answer.
+    """
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert messages[0].content == "Q1"
+
+
+async def test_select_variant_restores_the_follow_ups_of_the_chosen_answer(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Each answer keeps the conversation that grew out of it."""
+    await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        branched_thread["a2"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A3"]
+
+
+async def test_select_variant_follows_the_branch_to_its_deepest_turn(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+    persist_branch_message: Callable[..., Awaitable[ChatMessageDocument]],
+) -> None:
+    """The walk continues past the first follow-up to the end of the branch."""
+    tid: PydanticObjectId = persisted_thread_doc.id  # type: ignore[assignment]
+    await persist_branch_message(tid, "human", "Q3", "cC", "cD")
+    await persist_branch_message(tid, "ai", "A5", "cC", "cD")
+    await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        branched_thread["a2"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A3", "Q3", "A5"]
+
+
+async def test_select_variant_is_idempotent(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Selecting the answer already shown changes nothing."""
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        branched_thread["a2"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert [msg.content for msg in messages] == ["Q1", "A2", "Q2", "A3"]
+
+
+async def test_select_variant_stops_at_an_answer_with_no_checkpoint(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_branch_message: Callable[..., Awaitable[ChatMessageDocument]],
+) -> None:
+    """Nothing can have been stored under it, so it ends the branch."""
+    tid: PydanticObjectId = persisted_thread_doc.id  # type: ignore[assignment]
+    await persist_branch_message(tid, "human", "Q1", None, "cA", True, "cIn")
+    await persist_branch_message(tid, "ai", "A1", None, "cA", False, "cIn")
+    orphan = await persist_branch_message(tid, "ai", "A2", None, None, False, "cIn")
+
+    messages, _, _ = await select_variant(
+        persisted_thread_doc,
+        orphan.id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert [msg.content for msg in messages] == ["Q1", "A2"]
+
+
+async def test_select_variant_does_not_reorder_the_thread_list(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Reading an answer that already exists adds nothing to the conversation."""
+    before = persisted_thread_doc.updated_at
+
+    await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+    reloaded = await ChatThreadDocument.get(persisted_thread_doc.id)
+
+    assert reloaded is not None
+    assert reloaded.updated_at == before
+
+
+async def test_select_variant_rejects_an_unknown_message(
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A message that is not an answer in this thread is not found."""
+
+    with pytest.raises(HTTPException) as exc_info:
+        await select_variant(persisted_thread_doc, PydanticObjectId(), limit=10)
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# resume_chat_stream: branches
+# ---------------------------------------------------------------------------
+
+
+async def test_resume_chat_stream_continues_from_the_selected_branch(
+    user: User,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The next turn follows the answer on screen, not the newest one written."""
+    await select_variant(
+        persisted_thread_doc,
+        branched_thread["a1"].id,  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    with (
+        patch("app.chat.service.update_thread_timestamp", new_callable=AsyncMock),
+        patch("app.chat.service.stream_agent_response") as mock_stream,
+    ):
+        mock_stream.return_value = _make_async_gen([])
+        [event async for event in resume_chat_stream(persisted_thread_doc, "Q2", user)]
+
+    assert mock_stream.call_args.kwargs["resume_checkpoint_id"] == "cA"
+
+
+async def test_resume_chat_stream_does_not_pin_an_unbranched_thread(
+    user: User,
+    mock_thread_doc: MagicMock,
+) -> None:
+    """A thread that has never been regenerated behaves exactly as before."""
+    with (
+        patch("app.chat.service.update_thread_timestamp", new_callable=AsyncMock),
+        patch("app.chat.service.stream_agent_response") as mock_stream,
+    ):
+        mock_stream.return_value = _make_async_gen([])
+        [event async for event in resume_chat_stream(mock_thread_doc, "Hello", user)]
+
+    assert mock_stream.call_args.kwargs["resume_checkpoint_id"] is None

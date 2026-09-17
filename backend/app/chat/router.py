@@ -13,7 +13,11 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.auth.dependencies import CurrentUser
 from app.chat.config import chat_settings
-from app.chat.dependencies import ChatRepoAccess, VerifiedChatThread
+from app.chat.dependencies import (
+    ChatRepoAccess,
+    VerifiedChatThread,
+    VerifiedRetryTarget,
+)
 from app.chat.llm import close_agent_resources, init_agent_resources
 from app.chat.schemas import (
     ChatMessageRequest,
@@ -21,6 +25,7 @@ from app.chat.schemas import (
     ChatThreadMessagesResponse,
     ChatThreadResponse,
     CreateChatRequest,
+    SelectVariantRequest,
     UpdateChatTitleRequest,
 )
 from app.chat.service import (
@@ -29,8 +34,11 @@ from app.chat.service import (
     get_thread_messages,
     get_user_threads,
     resume_chat_stream,
+    retry_message_stream,
+    select_variant,
     update_thread_title,
 )
+from app.chat.utils import to_message_response
 from app.chat.vectorstore import close_vectorstore, init_vectorstore
 
 
@@ -152,11 +160,14 @@ async def get_chat_messages_endpoint(
             with the `next_cursor` to pass as `before` on the next call.
             The cursor is absent once the history is exhausted.
     """
-    messages, next_cursor = await get_thread_messages(thread, limit, before)
+    messages, variants, next_cursor = await get_thread_messages(thread, limit, before)
 
     return ChatThreadMessagesResponse(
         chat_id=thread.id,  # type: ignore
-        messages=messages,
+        messages=[
+            to_message_response(msg, variants.get(msg.id))  # type: ignore[arg-type]
+            for msg in messages
+        ],
         next_cursor=next_cursor,
     )
 
@@ -184,6 +195,86 @@ async def update_chat_title_endpoint(
         title=updated.title,
         created_at=updated.created_at,
         updated_at=updated.updated_at,
+    )
+
+
+@chat_router.post("/{chat_id}/retry", response_class=EventSourceResponse)
+async def retry_chat_message_endpoint(
+    user: CurrentUser,
+    thread: VerifiedChatThread,
+    retry_target: VerifiedRetryTarget,
+) -> AsyncGenerator[ServerSentEvent, None]:
+    """Generate another answer to an already-answered question.
+
+    The new answer is stored alongside the existing one rather than
+    replacing it, and becomes the one the conversation continues from.
+    Regenerating an answer that was already followed up takes those
+    follow-ups out of the conversation too. Selecting the old answer again
+    brings them back. The answer must be on the conversation as it currently
+    reads, which `VerifiedRetryTarget` checks before this stream opens.
+
+    Args:
+        user(CurrentUser): The authenticated user (injected by FastAPI).
+        thread(VerifiedChatThread): The verified chat thread document
+            (injected by FastAPI).
+        retry_target(VerifiedRetryTarget): The answer to regenerate and the
+            question it answers (injected by FastAPI).
+
+    Returns:
+        EventSourceResponse: An SSE stream of chat events.
+    """
+    target, prompt = retry_target
+
+    async for event in retry_message_stream(thread, target, prompt, user):
+        yield event
+
+
+@chat_router.post(
+    "/{chat_id}/variant",
+    response_model=ChatThreadMessagesResponse,
+    response_model_exclude_none=True,
+)
+async def select_chat_variant_endpoint(
+    request: SelectVariantRequest,
+    thread: VerifiedChatThread,
+    limit: int = Query(
+        default=chat_settings.MESSAGES_PAGE_SIZE,
+        ge=1,
+        le=chat_settings.MESSAGES_MAX_PAGE_SIZE,
+    ),
+) -> ChatThreadMessagesResponse:
+    """Switch the conversation onto another answer to the same question.
+
+    The answers that were not chosen, and the turns that followed them, are
+    hidden rather than deleted: each answer keeps its own follow-ups, and
+    switching back restores them.
+
+    Since this changes the whole conversation from that point on, the newest
+    page is returned so the caller can render the result directly.
+
+    Args:
+        request(SelectVariantRequest): The request containing the ID of the
+            answer to switch to.
+        thread(VerifiedChatThread): The verified chat thread document
+            (injected by FastAPI).
+        limit(int): Maximum number of messages to return.
+
+    Returns:
+        ChatThreadMessagesResponse: The newest page of the conversation as it
+            now reads, with the `next_cursor` to pass as `before` to request
+            the preceding page.
+    """
+    messages, variants, next_cursor = await select_variant(
+        thread, request.message_id, limit
+    )
+
+    return ChatThreadMessagesResponse(
+        chat_id=thread.id,  # type: ignore[arg-type]
+        messages=[
+            to_message_response(msg, variants.get(msg.id))  # type: ignore[arg-type]
+            for msg in messages
+        ],
+        next_cursor=next_cursor,
     )
 
 

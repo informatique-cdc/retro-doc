@@ -13,7 +13,7 @@ from app.auth.dependencies import CurrentUser
 from app.users.models import UserRepoDocument
 
 
-async def get_user_repo(
+async def get_verified_user_repo(
     repo_id: PydanticObjectId,
     user: CurrentUser,
 ) -> UserRepoDocument:
@@ -41,4 +41,4 @@ async def get_user_repo(
     return user_repo
 
 
-VerifiedUserRepo = Annotated[UserRepoDocument, Depends(get_user_repo)]
+VerifiedUserRepo = Annotated[UserRepoDocument, Depends(get_verified_user_repo)]

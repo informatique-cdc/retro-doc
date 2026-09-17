@@ -7,7 +7,7 @@ and LangChain fake fixtures for testing agent logic without API calls.
 
 from collections.abc import Awaitable, Callable, Generator
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -38,6 +38,33 @@ def _override_deps(
     app.dependency_overrides[get_verified_chat_thread] = lambda: persisted_thread_doc
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def branched_thread(
+    persisted_thread_doc: ChatThreadDocument,
+    persist_branch_message: Callable[..., Awaitable[ChatMessageDocument]],
+) -> dict[str, ChatMessageDocument]:
+    """A thread whose first answer was regenerated, then followed up.
+
+    Mirrors what the service writes when an answer is regenerated: the
+    question is stored once, both answers hang off it, and the conversation
+    continues from the selected one.
+
+        Q1 ─┬─ A1  (superseded)
+            └─ A2 ── Q2 ── A3
+    """
+    persisted_thread_doc.has_variants = True
+    await persisted_thread_doc.save()
+
+    tid = persisted_thread_doc.id
+    return {
+        "q1": await persist_branch_message(tid, "human", "Q1", None, "cA", True, "cIn"),
+        "a1": await persist_branch_message(tid, "ai", "A1", None, "cA", False, "cIn"),
+        "a2": await persist_branch_message(tid, "ai", "A2", None, "cB", True, "cIn"),
+        "q2": await persist_branch_message(tid, "human", "Q2", "cB", "cC"),
+        "a3": await persist_branch_message(tid, "ai", "A3", "cB", "cC"),
+    }
 
 
 @pytest.fixture
@@ -95,6 +122,7 @@ def mock_thread_doc(
     thread.user_id = user.uid
     thread.repo_id = repo_id
     thread.title = "Test thread"
+    thread.has_variants = False
     thread.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
     thread.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
     thread.insert = AsyncMock()
@@ -134,6 +162,37 @@ async def persisted_message_docs(
     await human.insert()
     await ai.insert()
     return [human, ai]
+
+
+@pytest.fixture
+def persist_branch_message() -> Callable[..., Awaitable[ChatMessageDocument]]:
+    """Factory that persists one message with explicit branch links.
+
+    Unlike `persist_messages`, the checkpoint links are given rather than
+    left empty, so the stored messages form a tree the branch logic can
+    actually walk.
+    """
+
+    async def _factory(
+        thread_id: PydanticObjectId,
+        role: Literal["human", "ai"],
+        content: str,
+        parent_checkpoint_id: str | None = None,
+        checkpoint_id: str | None = None,
+        active: bool = True,
+        input_checkpoint_id: str | None = None,
+    ) -> ChatMessageDocument:
+        return await ChatMessageDocument(
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            parent_checkpoint_id=parent_checkpoint_id,
+            checkpoint_id=checkpoint_id,
+            input_checkpoint_id=input_checkpoint_id,
+            active=active,
+        ).insert()
+
+    return _factory
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ from app.auth.dependencies import CurrentUser
 from app.deep_analysis.models import DeepAnalysisDocument
 from app.deep_analysis.schemas import CreateDeepAnalysisRequest
 from app.deep_analysis.service import _mark_stale_analyses_as_failed
-from app.users.dependencies import get_user_repo
+from app.users.dependencies import get_verified_user_repo
 
 
 async def verify_deep_analysis_repo_access(
@@ -26,7 +26,7 @@ async def verify_deep_analysis_repo_access(
         request(CreateDeepAnalysisRequest): The request containing `repo_id`.
         user(CurrentUser): The authenticated user (injected by FastAPI).
     """
-    await get_user_repo(request.repo_id, user)
+    await get_verified_user_repo(request.repo_id, user)
 
 
 async def get_verified_deep_analysis(

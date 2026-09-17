@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from app.chat.config import chat_settings
-from app.chat.models import ChatThreadDocument
+from app.chat.models import ChatMessageDocument, ChatThreadDocument
 
 pytestmark = pytest.mark.usefixtures("_override_deps")
 
@@ -146,3 +146,105 @@ async def test_get_chat_messages_rejects_unknown_cursor(
     )
 
     assert resp.status_code == 422
+
+
+async def test_get_chat_messages_omits_pager_fields_for_an_unbranched_thread(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    persist_messages: Any,
+) -> None:
+    """A thread that has never been regenerated serves the payload it always did."""
+    await persist_messages(persisted_thread_doc.id, 2)
+
+    resp = await mock_client.get(f"/chat/{persisted_thread_doc.id}")
+
+    assert resp.status_code == 200
+    # `response_model_exclude_none=True` drops the unset pager fields.
+    assert set(resp.json()["messages"][0]) == {"id", "role", "content"}
+
+
+async def test_get_chat_messages_carries_the_pager_for_a_regenerated_answer(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A regenerated answer reaches the client with its place among its siblings."""
+    resp = await mock_client.get(f"/chat/{persisted_thread_doc.id}")
+
+    assert resp.status_code == 200
+    answer = next(m for m in resp.json()["messages"] if m["content"] == "A2")
+    assert answer["variant_index"] == 2
+    assert answer["variant_count"] == 2
+    assert answer["prev_variant_id"] == str(branched_thread["a1"].id)
+    assert "next_variant_id" not in answer
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/{chat_id}/retry
+# ---------------------------------------------------------------------------
+
+
+async def test_retry_chat_message_rejects_an_answer_off_the_conversation(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The guard is enforced server-side, not by hiding the button."""
+    resp = await mock_client.post(
+        f"/chat/{persisted_thread_doc.id}/retry",
+        json={"message_id": str(branched_thread["a1"].id)},
+    )
+
+    assert resp.status_code == 409
+
+
+async def test_retry_chat_message_rejects_an_unknown_message(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """A rejection is a real status, not a stream carrying an error event."""
+    resp = await mock_client.post(
+        f"/chat/{persisted_thread_doc.id}/retry",
+        json={"message_id": "000000000000000000000099"},
+    )
+
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/{chat_id}/variant
+# ---------------------------------------------------------------------------
+
+
+async def test_select_chat_variant_returns_the_switched_conversation(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """The caller can render the result without a second request."""
+    resp = await mock_client.post(
+        f"/chat/{persisted_thread_doc.id}/variant",
+        json={"message_id": str(branched_thread["a1"].id)},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [m["content"] for m in data["messages"]] == ["Q1", "A1"]
+    assert data["messages"][1]["variant_index"] == 1
+    assert data["messages"][1]["variant_count"] == 2
+    assert data["messages"][1]["next_variant_id"] == str(branched_thread["a2"].id)
+
+
+async def test_select_chat_variant_rejects_an_unknown_message(
+    mock_client: httpx.AsyncClient,
+    persisted_thread_doc: ChatThreadDocument,
+    branched_thread: dict[str, ChatMessageDocument],
+) -> None:
+    """Switching to something that is not an answer in this thread is a 404."""
+    resp = await mock_client.post(
+        f"/chat/{persisted_thread_doc.id}/variant",
+        json={"message_id": "000000000000000000000099"},
+    )
+
+    assert resp.status_code == 404

@@ -17,7 +17,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.schemas import User
 from app.repos.dependencies import get_verified_file, get_verified_repo
 from app.repos.models import FileDocument, RepoDocument
-from app.users.dependencies import get_user_repo
+from app.users.dependencies import get_verified_user_repo
 from app.users.models import UserRepoDocument
 
 
@@ -33,7 +33,7 @@ def _override_deps(
     from app.main import app
 
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_user_repo] = lambda: user_repo_doc
+    app.dependency_overrides[get_verified_user_repo] = lambda: user_repo_doc
     app.dependency_overrides[get_verified_repo] = lambda: repo_doc
     app.dependency_overrides[get_verified_file] = lambda: file_doc
     yield

@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt.tool_node import ToolRuntime
 
 from app.chat.config import chat_settings
-from app.chat.models import ChatMessageDocument
+from app.chat.models import SELECTED_BRANCH_FILTER, ChatMessageDocument
 from app.chat.vectorstore import get_vectorstore
 from app.core.blob_storage import get_container_client
 from app.docs.models import FileDocumentationDocument, RepoMetaDocument
@@ -98,7 +98,9 @@ async def retrieve_messages(
     thread_id = PydanticObjectId(runtime.config["configurable"]["thread_id"])
     limit = max(1, min(limit, chat_settings.RETRIEVE_MESSAGES_MAX_RESULTS))
 
-    filters: dict[str, object] = {"thread_id": thread_id}
+    # Scoped to the selected branch: answers the user regenerated away from
+    # are no longer part of the conversation and must not be recalled
+    filters: dict[str, object] = {"thread_id": thread_id, **SELECTED_BRANCH_FILTER}
     if role is not None:
         filters["role"] = role
     if query is not None:
