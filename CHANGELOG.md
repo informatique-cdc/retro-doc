@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Analyses can now target multiple languages per repository (previously a single language).
+- Chat can now fork messages.
 - Repository statistics captured during analysis (e.g. number of files and number of files
   per extension) and surfaced to the end user once the analysis completes.
 
