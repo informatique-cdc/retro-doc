@@ -7,10 +7,17 @@ export interface SupportedLanguagesResponse {
 export interface Repo {
   repo_id: string;
   name: string;
-  repo_url: string | null;
-  repo_branch: string | null;
+  repo_url: string;
+  /**
+   * The commit a git source was pinned to, and the discriminator between the
+   * two kinds of repository: a zip upload leaves it null.
+   */
   repo_hash: string | null;
   languages: Language[];
+  /** Analyzer that produced the documentation. Null until a run has stamped one. */
+  analyzer_version: string | null;
+  /** Whether a newer analyzer exists, i.e. whether relaunching would add anything. */
+  stale: boolean;
   color: string | null;
   created_at: string;
   updated_at: string;
@@ -47,7 +54,6 @@ export interface RepoDetail extends Repo {
 export interface RepoFile {
   file_id: string;
   path: string;
-  file_hash: string;
 }
 
 export interface RepoFilesResponse {
@@ -70,9 +76,33 @@ export interface FileDocumentationResponse {
 
 export type PipelineStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+/** Why a run is where it is: the step it reached and what happened there. */
+export interface PipelineMeta {
+  message: string;
+  step: string;
+}
+
+/**
+ * One attempt at analyzing a repository.
+ *
+ * `retried_at` is set on the attempts a retry superseded, so a failure that was
+ * restarted can be told apart from one that still stands.
+ */
+export interface PipelineAttempt {
+  status: PipelineStatus;
+  started_at: string;
+  finished_at: string | null;
+  retried_at: string | null;
+  meta: PipelineMeta | null;
+}
+
 export interface PipelineStatusResponse {
   repo_id: string;
+  /** The latest attempt's status — the same one as `attempts[0]`. */
   status: PipelineStatus;
+  meta: PipelineMeta | null;
+  /** Latest attempt first. Never empty: a repository with no runs is a 404. */
+  attempts: PipelineAttempt[];
 }
 
 export interface ScopedGraph {
@@ -93,9 +123,55 @@ export interface AnalyzeFileResponse {
   status: PipelineStatus;
 }
 
+/**
+ * A git source to analyze.
+ *
+ * No `languages`: a git analysis is shared between everyone who asks for the
+ * same commit, so it always covers every supported language, and the backend
+ * rejects a language filter here.
+ */
+export interface AnalyzeGitRequest {
+  repo_url: string;
+  name: string;
+  color: string;
+  /** Branch to take the commit from. Defaults to the remote's default branch. */
+  branch?: string;
+  /** Explicit commit SHA. Wins over `branch` when both are given. */
+  commit?: string;
+  /** Credential for a private remote. Used to reach it, never stored. */
+  token?: string;
+}
+
+export interface AnalyzeGitResult extends AnalyzeFileResponse {
+  /**
+   * Whether an analysis of this commit already existed and was joined rather
+   * than started — the backend's 200, against 202 for one this call started.
+   */
+  joined: boolean;
+}
+
 export interface ImportRepoResponse {
   repo_id: string;
   name: string;
+}
+
+export interface RelaunchRepoRequest {
+  /**
+   * Credential for a private git remote. Relaunching fetches the remote again,
+   * so unlike joining it takes access. Used to reach it, never stored.
+   */
+  token?: string;
+}
+
+export interface RelaunchRepoResponse {
+  /**
+   * Where the relaunched analysis lives: a new repository when it moved to a
+   * newer analyzer version, the one relaunched when a failed run was retried in
+   * place. Compare against the id sent to tell the two apart — nothing is
+   * replaced either way.
+   */
+  repo_id: string;
+  status: PipelineStatus;
 }
 
 export interface UpdateUserRepoRequest {

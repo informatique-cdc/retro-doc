@@ -70,7 +70,16 @@
                   />
                 </svg>
               </div>
-              <span class="card__lang">{{ languageLabel(repo) }}</span>
+              <div class="card__top-right">
+                @if (repo.stale) {
+                  <!-- The worker has moved on from this analysis; the project
+                       page is where it can be relaunched -->
+                  <span class="card__stale" [attr.title]="'dashboard.staleHint' | translate">
+                    {{ 'dashboard.stale' | translate }}
+                  </span>
+                }
+                <span class="card__lang">{{ languageLabel(repo) }}</span>
+              </div>
             </div>
             <p class="card__name">{{ repo.name }}</p>
             <div class="card__meta">

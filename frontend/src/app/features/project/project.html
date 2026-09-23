@@ -33,7 +33,7 @@
           <ui-button
             variant="danger"
             size="medium"
-            [disabled]="isRunning()"
+            [disabled]="isAnalyzing()"
             (click)="startAnalysis()"
           >
             {{ 'project.startAnalysis' | translate }}
@@ -64,6 +64,18 @@
           <div class="project__stat-value">{{ lastEdit() }}</div>
         </div>
 
+        @if (analyzerVersion(); as version) {
+          <div class="project__stat">
+            <div class="project__stat-label">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M6 4L2.5 8L6 12M10 4L13.5 8L10 12" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              {{ 'project.analyzer' | translate }}
+            </div>
+            <div class="project__stat-value project__stat-value--mono">{{ version }}</div>
+          </div>
+        }
+
         @if (!isZipUpload()) {
           <div class="project__stat">
             <div class="project__stat-label">
@@ -89,7 +101,82 @@
       </div>
     </section>
 
-    @if (isRunning()) {
+    @if (analysisFailed()) {
+      <!-- Failed Run: retried through the same relaunch endpoint -->
+      <section class="project__failed-card" role="alert">
+        <div class="project__failed-head">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 6V11M10 13.5V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <h2 class="project__failed-title">{{ 'project.analysisFailed' | translate }}</h2>
+        </div>
+        <p class="project__failed-text">{{ 'project.analysisFailedText' | translate }}</p>
+        @if (failureMeta(); as meta) {
+          <dl class="project__failed-detail">
+            <dt class="project__failed-term">{{ 'project.failedStep' | translate }}</dt>
+            <dd class="project__failed-value">{{ meta.step }}</dd>
+            <dt class="project__failed-term">{{ 'project.failedMessage' | translate }}</dt>
+            <dd class="project__failed-value">{{ meta.message }}</dd>
+          </dl>
+        }
+
+        @if (previousAttempts().length > 0) {
+          <details class="project__attempts">
+            <summary class="project__attempts-summary">
+              {{ 'project.previousAttempts' | translate: { count: previousAttempts().length } }}
+            </summary>
+            <ul class="project__attempts-list">
+              @for (attempt of previousAttempts(); track $index) {
+                <li class="project__attempt">
+                  <span class="project__attempt-status">
+                    {{ ('project.status.' + attempt.status) | translate }}
+                  </span>
+                  @if (attempt.step; as step) {
+                    <span class="project__attempt-step">{{ step }}</span>
+                  }
+                  <span class="project__attempt-when">{{ attempt.when }}</span>
+                  @if (attempt.superseded) {
+                    <span class="project__attempt-tag">
+                      {{ 'project.attemptSuperseded' | translate }}
+                    </span>
+                  }
+                </li>
+              }
+            </ul>
+          </details>
+        }
+        <ui-button variant="danger" size="medium" (click)="openRelaunchDialog('failed')">
+          {{ 'project.retryAnalysis' | translate }}
+        </ui-button>
+      </section>
+    } @else if (noPipelineRun()) {
+      <!-- A create that died before inserting its run leaves the repository
+           with nothing on record. Nothing sweeps for one, so a relaunch is
+           what dispatches it. -->
+      <section class="project__stale-card">
+        <div class="project__stale-copy">
+          <h2 class="project__stale-title">{{ 'project.noRunTitle' | translate }}</h2>
+          <p class="project__stale-text">{{ 'project.noRunText' | translate }}</p>
+        </div>
+        <ui-button variant="secondary" size="medium" (click)="openRelaunchDialog('never')">
+          {{ 'project.runAnalysis' | translate }}
+        </ui-button>
+      </section>
+    } @else if (canRelaunch()) {
+      <!-- A newer analyzer has output this repository does not have yet -->
+      <section class="project__stale-card">
+        <div class="project__stale-copy">
+          <h2 class="project__stale-title">{{ 'project.staleTitle' | translate }}</h2>
+          <p class="project__stale-text">{{ 'project.staleText' | translate }}</p>
+        </div>
+        <ui-button variant="secondary" size="medium" (click)="openRelaunchDialog('stale')">
+          {{ 'project.relaunch' | translate }}
+        </ui-button>
+      </section>
+    }
+
+    @if (isAnalyzing()) {
       <!-- Analysis Running Banner -->
       <section class="project__running-card" aria-live="polite">
         <ui-spinner size="large" [ariaLabel]="'project.analysisRunningLabel' | translate"></ui-spinner>
@@ -97,6 +184,15 @@
         <p class="project__running-text">
           {{ 'project.analysisRunningText' | translate }}
         </p>
+        <!-- A run the worker abandoned is only settled when a relaunch asks:
+             nothing sweeps for one, so this is the way out of a wedged run.
+             A run that is genuinely alive is refused, and says so. -->
+        <div class="project__running-escape">
+          <span class="project__running-stuck">{{ 'project.stuckText' | translate }}</span>
+          <ui-button variant="secondary" size="small" (click)="openRelaunchDialog('stuck')">
+            {{ 'project.relaunchStuck' | translate }}
+          </ui-button>
+        </div>
       </section>
     } @else {
       <!-- Language Breakdown -->
@@ -144,4 +240,15 @@
     (saved)="onRepoSaved()"
     (deleted)="onRepoDeleted()"
   />
+}
+
+@if (relaunchReason(); as reason) {
+  @if (repo(); as relaunchRepo) {
+    <app-relaunch-dialog
+      [repo]="relaunchRepo"
+      [reason]="reason"
+      (closed)="closeRelaunchDialog()"
+      (relaunched)="onRelaunched($event)"
+    />
+  }
 }

@@ -3,11 +3,15 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { map, Observable } from 'rxjs';
 import {
   AnalyzeFileResponse,
+  AnalyzeGitRequest,
+  AnalyzeGitResult,
   FileDocumentationResponse,
   FileGraphsResponse,
   FileSourceResponse,
   ImportRepoResponse,
   PipelineStatusResponse,
+  RelaunchRepoRequest,
+  RelaunchRepoResponse,
   Repo,
   RepoDetail,
   RepoFile,
@@ -92,6 +96,25 @@ export class RepoService {
     );
   }
 
+  /**
+   * Re-analyze a repository at the worker's current analyzer version.
+   *
+   * Also how a failed run is retried — the backend has no separate endpoint for
+   * it, and which of the two happens is decided there from the repository's own
+   * state. The response says which: a new `repo_id` is an analysis at a newer
+   * version to move to, the one sent is a retry that stayed in place.
+   *
+   * `token` reaches a private git remote, and is omitted rather than sent empty
+   * so a public one is not handed a blank credential.
+   */
+  relaunchRepo(repoId: string, token?: string): Observable<RelaunchRepoResponse> {
+    const request: RelaunchRepoRequest = token ? { token } : {};
+    return this.http.post<RelaunchRepoResponse>(
+      `/api/v0/repos/${encodeURIComponent(repoId)}/relaunch`,
+      request
+    );
+  }
+
   updateUserRepo(repoId: string, request: UpdateUserRepoRequest): Observable<Repo> {
     return this.http.patch<Repo>(
       `/api/v0/repos/${encodeURIComponent(repoId)}`,
@@ -103,17 +126,31 @@ export class RepoService {
     return this.http.delete<void>(`/api/v0/repos/${encodeURIComponent(repoId)}`);
   }
 
-  analyzeGitUrl(
-    url: string,
-    name: string,
-    languages: string[],
-    color: string
-  ): Observable<AnalyzeFileResponse> {
-    return this.http.post<AnalyzeFileResponse>('/api/v0/repos/analyze/git', {
-      url,
-      name,
-      languages,
-      color,
-    });
+  /**
+   * Start an analysis of a git repository, or join one that already exists.
+   *
+   * Shares the zip upload's endpoint: the backend takes the git path from
+   * `repo_url` being set in place of `file`. Optional fields are omitted rather
+   * than sent empty, so the backend applies its own defaults — the remote's
+   * default branch, and no credential — instead of resolving a blank branch.
+   */
+  analyzeGit(request: AnalyzeGitRequest): Observable<AnalyzeGitResult> {
+    const formData = new FormData();
+    formData.append('repo_url', request.repo_url);
+    formData.append('name', request.name);
+    formData.append('color', request.color);
+    if (request.branch) {
+      formData.append('branch', request.branch);
+    }
+    if (request.commit) {
+      formData.append('commit', request.commit);
+    }
+    if (request.token) {
+      formData.append('token', request.token);
+    }
+
+    return this.http
+      .post<AnalyzeFileResponse>('/api/v0/repos', formData, { observe: 'response' })
+      .pipe(map((res) => ({ ...res.body!, joined: res.status === 200 })));
   }
 }

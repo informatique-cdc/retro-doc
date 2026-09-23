@@ -84,7 +84,9 @@ export class Analysis implements OnInit {
   protected readonly fileCount = computed(() => this.files().length);
   protected readonly repoName = computed(() => this.repo()?.name ?? '');
 
-  protected readonly isZipUpload = computed(() => !this.repo()?.repo_branch);
+  // A zip upload is the repository with no commit pinned to it — the same test
+  // the backend uses to tell its two sources apart
+  protected readonly isZipUpload = computed(() => !this.repo()?.repo_hash);
 
   protected readonly branchCount = signal(12);
   protected readonly contributorCount = signal(8);

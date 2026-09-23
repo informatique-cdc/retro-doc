@@ -1,0 +1,79 @@
+<dialog
+  #dialog
+  class="relaunch-dialog"
+  aria-labelledby="relaunch-dialog-title"
+  aria-describedby="relaunch-dialog-explanation"
+  (close)="onDialogClose()"
+  (click)="onBackdropClick($event)"
+  (keydown.escape)="close()"
+  tabindex="-1"
+>
+  <div class="relaunch-dialog__panel">
+    <header class="relaunch-dialog__header">
+      <div>
+        <h2 id="relaunch-dialog-title" class="relaunch-dialog__title">
+          {{ titleKey() | translate }}
+        </h2>
+        <p class="relaunch-dialog__subtitle">{{ repo().name }}</p>
+      </div>
+      <button
+        type="button"
+        class="relaunch-dialog__close"
+        [attr.aria-label]="'analyzeDialog.closeDialog' | translate"
+        (click)="close()"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="relaunch-dialog__body">
+      <p id="relaunch-dialog-explanation" class="relaunch-dialog__text">
+        {{ explanationKey() | translate }}
+      </p>
+
+      @if (showKeepsExisting()) {
+        <p class="relaunch-dialog__note">{{ 'relaunchDialog.keepsExisting' | translate }}</p>
+      }
+
+      @if (isGit()) {
+        <ui-input
+          type="password"
+          [label]="'relaunchDialog.token' | translate"
+          [placeholder]="'relaunchDialog.tokenPlaceholder' | translate"
+          [helper]="'relaunchDialog.tokenHelper' | translate"
+          [value]="token()"
+          (valueChange)="onTokenInput($event)"
+        ></ui-input>
+      }
+
+      @if (serverError(); as error) {
+        <p class="relaunch-dialog__error" role="alert">{{ error }}</p>
+      }
+    </div>
+
+    <footer class="relaunch-dialog__footer">
+      <ui-button variant="secondary" [disabled]="loading()" (click)="close()">
+        {{ 'analyzeDialog.cancel' | translate }}
+      </ui-button>
+      <ui-button
+        variant="danger"
+        [loading]="loading()"
+        [disabled]="loading()"
+        (click)="onConfirm()"
+      >
+        @if (loading()) {
+          {{ pendingKey() | translate }}
+        } @else {
+          {{ confirmKey() | translate }}
+        }
+      </ui-button>
+    </footer>
+  </div>
+</dialog>

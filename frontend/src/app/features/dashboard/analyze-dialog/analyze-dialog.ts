@@ -10,11 +10,12 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs';
+import { finalize, Observable } from 'rxjs';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { UiButton, UiDropzone, UiInput } from '@design-system';
-import { RepoService, RepoStore } from '../../../core/api';
+import { AnalyzeFileResponse, RepoService, RepoStore } from '../../../core/api';
 
 type UploadMethod = 'git' | 'zip';
 
@@ -38,6 +39,25 @@ const LANGUAGE_LABELS: Record<string, string> = {
   typescript: 'TypeScript',
   cobol: 'COBOL',
 };
+
+/** Mirrors the backend's commit check, so a typo is caught before a round trip. */
+const COMMIT_PATTERN = /^[0-9a-fA-F]{7,64}$/;
+
+/**
+ * Whether a string is an http(s) URL, the only shape the backend accepts.
+ *
+ * `URL` rejects a missing host for these schemes, so the authority the git
+ * remote is fetched from is covered too.
+ */
+function isHttpUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+}
 
 const PROJECT_COLORS: ColorOption[] = [
   { value: '#3B82F6', label: 'Blue' },
@@ -79,6 +99,9 @@ export class AnalyzeDialog implements AfterViewInit {
     initialValue: [] as string[],
   });
   protected readonly gitUrl = signal('');
+  protected readonly gitBranch = signal('');
+  protected readonly gitCommit = signal('');
+  protected readonly gitToken = signal('');
   protected readonly selectedColor = signal(PROJECT_COLORS[0].value);
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly dropzoneFiles = signal<DropzoneFile[]>([]);
@@ -93,7 +116,7 @@ export class AnalyzeDialog implements AfterViewInit {
       : '';
   });
   protected readonly languageError = computed(() => {
-    if (!this.submitted() || this.autoDetect()) return '';
+    if (!this.submitted() || this.uploadMethod() !== 'zip' || this.autoDetect()) return '';
     return this.selectedLanguages().length === 0
       ? this.translateService.instant('analyzeDialog.langRequired')
       : '';
@@ -106,8 +129,16 @@ export class AnalyzeDialog implements AfterViewInit {
   });
   protected readonly gitUrlError = computed(() => {
     if (!this.submitted() || this.uploadMethod() !== 'git') return '';
-    return this.gitUrl().trim() === ''
-      ? this.translateService.instant('analyzeDialog.gitUrlRequired')
+    const url = this.gitUrl().trim();
+    if (url === '') return this.translateService.instant('analyzeDialog.gitUrlRequired');
+    if (!isHttpUrl(url)) return this.translateService.instant('analyzeDialog.gitUrlInvalid');
+    return '';
+  });
+  protected readonly gitCommitError = computed(() => {
+    if (!this.submitted() || this.uploadMethod() !== 'git') return '';
+    const commit = this.gitCommit().trim();
+    return commit !== '' && !COMMIT_PATTERN.test(commit)
+      ? this.translateService.instant('analyzeDialog.gitCommitInvalid')
       : '';
   });
 
@@ -115,14 +146,19 @@ export class AnalyzeDialog implements AfterViewInit {
   protected readonly serverError = signal<string | null>(null);
 
   protected readonly canSubmit = computed(() => {
-    const languageChosen = this.autoDetect() || this.selectedLanguages().length > 0;
-    const baseFilled =
-      this.projectName().trim() !== '' && languageChosen && !this.loading();
+    if (this.loading() || this.projectName().trim() === '') return false;
 
+    // A git analysis is shared, so it takes no language filter — only the
+    // remote has to be describable, and the branch may be left to the backend
     if (this.uploadMethod() === 'git') {
-      return baseFilled && this.gitUrl().trim() !== '';
+      const commit = this.gitCommit().trim();
+      return (
+        isHttpUrl(this.gitUrl().trim()) && (commit === '' || COMMIT_PATTERN.test(commit))
+      );
     }
-    return baseFilled && this.selectedFile() !== null;
+
+    const languageChosen = this.autoDetect() || this.selectedLanguages().length > 0;
+    return languageChosen && this.selectedFile() !== null;
   });
 
   protected languageLabel(code: string): string {
@@ -159,6 +195,18 @@ export class AnalyzeDialog implements AfterViewInit {
 
   protected onGitUrlInput(value: string): void {
     this.gitUrl.set(value);
+  }
+
+  protected onGitBranchInput(value: string): void {
+    this.gitBranch.set(value);
+  }
+
+  protected onGitCommitInput(value: string): void {
+    this.gitCommit.set(value);
+  }
+
+  protected onGitTokenInput(value: string): void {
+    this.gitToken.set(value);
   }
 
   protected toggleAutoDetect(): void {
@@ -204,16 +252,28 @@ export class AnalyzeDialog implements AfterViewInit {
     if (!this.canSubmit()) return;
 
     const name = this.projectName().trim();
-    const languages = this.autoDetect() ? [] : this.selectedLanguages();
+    const color = this.selectedColor();
+    const isGit = this.uploadMethod() === 'git';
 
     this.loading.set(true);
 
-    const color = this.selectedColor();
-
-    const request$ =
-      this.uploadMethod() === 'git'
-        ? this.repoService.analyzeGitUrl(this.gitUrl().trim(), name, languages, color)
-        : this.repoService.analyzeFile(this.selectedFile()!, name, languages, color);
+    // Blank optional fields are dropped rather than sent: the backend reads an
+    // empty branch as a branch to resolve, and would not find one
+    const request$: Observable<AnalyzeFileResponse> = isGit
+      ? this.repoService.analyzeGit({
+          repo_url: this.gitUrl().trim(),
+          name,
+          color,
+          branch: this.gitBranch().trim() || undefined,
+          commit: this.gitCommit().trim() || undefined,
+          token: this.gitToken().trim() || undefined,
+        })
+      : this.repoService.analyzeFile(
+          this.selectedFile()!,
+          name,
+          this.autoDetect() ? [] : this.selectedLanguages(),
+          color
+        );
 
     request$
       .pipe(
@@ -226,9 +286,34 @@ export class AnalyzeDialog implements AfterViewInit {
           this.close();
           this.created.emit(response.repo_id);
         },
-        error: () => {
-          this.serverError.set(this.translateService.instant('analyzeDialog.uploadFailed'));
+        error: (err: HttpErrorResponse) => {
+          this.serverError.set(this.submitErrorMessage(err, isGit));
         },
       });
+  }
+
+  /**
+   * Turn a failed create into something the user can act on.
+   *
+   * Each path has its own fixable causes: git has a repository they already
+   * hold, a remote that refused the URL/branch/commit/token it was given, and
+   * one that did not answer at all. A zip has only the archive — the dropzone
+   * passes a dropped file through whatever `accept` says, so the backend is
+   * where a non-zip is caught, and its 400 says nothing else here.
+   */
+  private submitErrorMessage(err: HttpErrorResponse, isGit: boolean): string {
+    if (isGit) {
+      switch (err.status) {
+        case 409:
+          return this.translateService.instant('analyzeDialog.gitAlreadyAdded');
+        case 422:
+          return this.translateService.instant('analyzeDialog.gitUnresolved');
+        case 502:
+          return this.translateService.instant('analyzeDialog.gitUnreachable');
+      }
+    } else if (err.status === 400) {
+      return this.translateService.instant('analyzeDialog.zipRequired');
+    }
+    return this.translateService.instant('analyzeDialog.uploadFailed');
   }
 }

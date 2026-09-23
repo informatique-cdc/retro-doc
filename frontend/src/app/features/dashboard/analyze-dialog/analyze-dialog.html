@@ -41,17 +41,15 @@
         <button
           type="button"
           role="tab"
-          class="analyze-dialog__tab analyze-dialog__tab--disabled"
-          [attr.aria-selected]="false"
-          [attr.aria-disabled]="true"
-          [attr.title]="'analyzeDialog.comingSoon' | translate"
-          disabled
+          class="analyze-dialog__tab"
+          [class.analyze-dialog__tab--active]="uploadMethod() === 'git'"
+          [attr.aria-selected]="uploadMethod() === 'git'"
+          (click)="setUploadMethod('git')"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path d="M3 4C3 3.44772 3.44772 3 4 3H7.17157C7.43679 3 7.69114 3.10536 7.87868 3.29289L9.29289 4.70711C9.48043 4.89464 9.73478 5 10 5H16C16.5523 5 17 5.44772 17 6V16C17 16.5523 16.5523 17 16 17H4C3.44772 17 3 16.5523 3 16V4Z" stroke="currentColor" stroke-width="1.5"/>
           </svg>
           {{ 'analyzeDialog.gitRepository' | translate }}
-          <span class="analyze-dialog__tab-badge">{{ 'analyzeDialog.comingSoon' | translate }}</span>
         </button>
         <button
           type="button"
@@ -69,13 +67,42 @@
         </button>
       </div>
 
-      <!-- Git URL Input -->
+      <!-- Git Source -->
       @if (uploadMethod() === 'git') {
         <ui-input
+          [label]="'analyzeDialog.gitUrl' | translate"
           [placeholder]="'analyzeDialog.gitUrlPlaceholder' | translate"
+          required
           [value]="gitUrl()"
           [error]="gitUrlError()"
           (valueChange)="onGitUrlInput($event)"
+        ></ui-input>
+
+        <div class="analyze-dialog__git-row">
+          <ui-input
+            [label]="'analyzeDialog.gitBranch' | translate"
+            [placeholder]="'analyzeDialog.gitBranchPlaceholder' | translate"
+            [helper]="'analyzeDialog.gitBranchHelper' | translate"
+            [value]="gitBranch()"
+            (valueChange)="onGitBranchInput($event)"
+          ></ui-input>
+          <ui-input
+            [label]="'analyzeDialog.gitCommit' | translate"
+            [placeholder]="'analyzeDialog.gitCommitPlaceholder' | translate"
+            [helper]="'analyzeDialog.gitCommitHelper' | translate"
+            [value]="gitCommit()"
+            [error]="gitCommitError()"
+            (valueChange)="onGitCommitInput($event)"
+          ></ui-input>
+        </div>
+
+        <ui-input
+          type="password"
+          [label]="'analyzeDialog.gitToken' | translate"
+          [placeholder]="'analyzeDialog.gitTokenPlaceholder' | translate"
+          [helper]="'analyzeDialog.gitTokenHelper' | translate"
+          [value]="gitToken()"
+          (valueChange)="onGitTokenInput($event)"
         ></ui-input>
       }
 
@@ -91,51 +118,56 @@
         ></ui-dropzone>
       }
 
-      <!-- Programming Language -->
-      <div class="analyze-dialog__field">
-        <span class="analyze-dialog__label">{{ 'analyzeDialog.language' | translate }}</span>
+      <!-- Programming Language (zip only: a git analysis is shared, so it
+           always covers every supported language) -->
+      @if (uploadMethod() === 'git') {
+        <p class="analyze-dialog__note">{{ 'analyzeDialog.gitAllLanguages' | translate }}</p>
+      } @else {
+        <div class="analyze-dialog__field">
+          <span class="analyze-dialog__label">{{ 'analyzeDialog.language' | translate }}</span>
 
-        <button
-          type="button"
-          role="switch"
-          class="analyze-dialog__toggle"
-          [class.analyze-dialog__toggle--on]="autoDetect()"
-          [attr.aria-checked]="autoDetect()"
-          (click)="toggleAutoDetect()"
-        >
-          <span class="analyze-dialog__toggle-track" aria-hidden="true">
-            <span class="analyze-dialog__toggle-thumb"></span>
-          </span>
-          <span>{{ 'analyzeDialog.autoDetectLang' | translate }}</span>
-        </button>
-
-        @if (!autoDetect()) {
-          <span class="analyze-dialog__lang-hint">
-            {{ 'analyzeDialog.selectLanguages' | translate }}
-          </span>
-          <div
-            class="analyze-dialog__chips"
-            role="group"
-            [attr.aria-label]="'analyzeDialog.selectLanguages' | translate"
+          <button
+            type="button"
+            role="switch"
+            class="analyze-dialog__toggle"
+            [class.analyze-dialog__toggle--on]="autoDetect()"
+            [attr.aria-checked]="autoDetect()"
+            (click)="toggleAutoDetect()"
           >
-            @for (lang of availableLanguages(); track lang) {
-              <button
-                type="button"
-                class="analyze-dialog__chip"
-                [class.analyze-dialog__chip--selected]="isLanguageSelected(lang)"
-                [attr.aria-pressed]="isLanguageSelected(lang)"
-                (click)="toggleLanguage(lang)"
-              >
-                {{ languageLabel(lang) }}
-              </button>
-            }
-          </div>
-        }
+            <span class="analyze-dialog__toggle-track" aria-hidden="true">
+              <span class="analyze-dialog__toggle-thumb"></span>
+            </span>
+            <span>{{ 'analyzeDialog.autoDetectLang' | translate }}</span>
+          </button>
 
-        @if (languageError(); as error) {
-          <span class="analyze-dialog__field-error">{{ error }}</span>
-        }
-      </div>
+          @if (!autoDetect()) {
+            <span class="analyze-dialog__lang-hint">
+              {{ 'analyzeDialog.selectLanguages' | translate }}
+            </span>
+            <div
+              class="analyze-dialog__chips"
+              role="group"
+              [attr.aria-label]="'analyzeDialog.selectLanguages' | translate"
+            >
+              @for (lang of availableLanguages(); track lang) {
+                <button
+                  type="button"
+                  class="analyze-dialog__chip"
+                  [class.analyze-dialog__chip--selected]="isLanguageSelected(lang)"
+                  [attr.aria-pressed]="isLanguageSelected(lang)"
+                  (click)="toggleLanguage(lang)"
+                >
+                  {{ languageLabel(lang) }}
+                </button>
+              }
+            </div>
+          }
+
+          @if (languageError(); as error) {
+            <span class="analyze-dialog__field-error">{{ error }}</span>
+          }
+        </div>
+      }
 
       <!-- Project Name -->
       <ui-input

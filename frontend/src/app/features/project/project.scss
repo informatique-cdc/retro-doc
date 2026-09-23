@@ -112,6 +112,168 @@
   color: var(--color-text-primary, #1a1a1a);
 }
 
+// A version string is an identifier, not a figure: set it to match
+.project__stat-value--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+// --- Failed run / stale analyzer ---
+
+.project__failed-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+
+.project__failed-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #b91c1c;
+}
+
+.project__failed-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #b91c1c;
+  margin: 0;
+}
+
+.project__failed-text {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.project__failed-detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.project__failed-term {
+  font-weight: 600;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.project__failed-value {
+  margin: 0;
+  color: var(--color-text-primary, #1a1a1a);
+  overflow-wrap: anywhere;
+}
+
+.project__attempts {
+  width: 100%;
+  font-size: 0.8125rem;
+}
+
+.project__attempts-summary {
+  cursor: pointer;
+  color: var(--color-text-secondary, #6b7280);
+  font-weight: 600;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus, #4f46e5);
+    outline-offset: 2px;
+  }
+}
+
+.project__attempts-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.project__attempt {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.project__attempt-status {
+  font-weight: 600;
+  color: var(--color-text-primary, #1a1a1a);
+}
+
+.project__attempt-step,
+.project__attempt-when {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.project__attempt-tag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary, #6b7280);
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 9999px;
+  padding: 0.0625rem 0.5rem;
+}
+
+.project__running-escape {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-block-start: 0.5rem;
+}
+
+.project__running-stuck {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.project__stale-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--color-surface-alt, #f9fafb);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+
+  @media (max-width: 48rem) {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.project__stale-copy {
+  min-width: 0;
+}
+
+.project__stale-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.project__stale-text {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0.25rem 0 0;
+}
+
 // --- Running state ---
 
 .project__running-card {
