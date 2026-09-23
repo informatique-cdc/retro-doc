@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from jwt.exceptions import InvalidTokenError
 
 from app.auth.dependencies import CurrentUser
+from app.auth.exceptions import InvalidCredentialsHTTPException
 from app.auth.schemas import (
     AuthProviderName,
     LoginRequest,
@@ -16,7 +17,6 @@ from app.auth.schemas import (
     TokenResponse,
 )
 from app.auth.service import login, refresh
-from app.auth.utils import invalid_credentials_exception
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,13 +40,13 @@ async def login_endpoint(
     """
     try:
         return await login(provider, body.token)
-    except InvalidTokenError as e:
-        raise invalid_credentials_exception() from e
-    except httpx.HTTPError as e:
+    except InvalidTokenError as exc:
+        raise InvalidCredentialsHTTPException() from exc
+    except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Identity provider is unavailable",
-        ) from e
+        ) from exc
 
 
 @auth_router.get("/me", response_model=MeResponse)
@@ -78,5 +78,5 @@ async def refresh_endpoint(body: RefreshRequest) -> TokenResponse:
     """
     try:
         return refresh(body.refresh_token)
-    except InvalidTokenError as e:
-        raise invalid_credentials_exception() from e
+    except InvalidTokenError as exc:
+        raise InvalidCredentialsHTTPException() from exc

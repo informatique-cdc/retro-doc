@@ -20,6 +20,7 @@ dependencies = [
     "langchain-mistralai>=1.1.1",
     "langgraph-checkpoint-mongodb>=0.3.1",
     "loguru>=0.7.3",
+    "packaging>=26.2",
     "pyjwt>=2.11.0",
 ]
 
@@ -79,8 +80,15 @@ warn_required_dynamic_aliases = true
 ids = ["PYSEC-2025-183"]
 
 [tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "error",
+    "ignore:invalid escape sequence:SyntaxWarning",
+]
 testpaths = ["tests"]
+xfail_strict = true
 env = [
     "D:MONGODB_CONNECTION_STR=mongodb://fake-mongo.example.com:27017/fake",
     "D:BLOB_STORAGE_ACCOUNT_URL=https://fake.blob.core.windows.net",
@@ -99,7 +107,7 @@ env = [
 ]
 
 [tool.ruff.lint]
-select = ["I","F401"]
+select = ["I","F401","B904","W605"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

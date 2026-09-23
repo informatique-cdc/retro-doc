@@ -24,6 +24,18 @@ RUN uv sync --frozen --compile-bytecode --link-mode=copy --no-cache --no-dev -q
 # Copy the application code
 COPY . .
 
+# Trust an extra CA bundle when the build context provides one (TLS-inspecting proxy)
+RUN if [ -f ca-bundle.pem ]; then \
+        mkdir -p /usr/local/share/ca-certificates && \
+        cp ca-bundle.pem /usr/local/share/ca-certificates/extra-ca.crt && \
+        update-ca-certificates && \
+        rm -f ca-bundle.pem; \
+    fi
+
+# Make the ssl module (httpx) and requests read the system trust store
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # Inform on which port the app will run
 EXPOSE 8000
 

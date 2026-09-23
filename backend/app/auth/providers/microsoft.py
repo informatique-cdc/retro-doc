@@ -36,5 +36,5 @@ class MicrosoftAuthProvider(AuthProvider):
         claims = await validate_oidc_token(credential)
         try:
             return ProviderIdentity.model_validate(claims)
-        except ValidationError as e:
-            raise InvalidTokenError("Token missing required claims") from e
+        except ValidationError as exc:
+            raise InvalidTokenError("Token missing required claims") from exc

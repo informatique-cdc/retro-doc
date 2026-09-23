@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.auth.utils import compute_uid
+from app.auth.identity import compute_uid
 
 
 class AuthProviderName(StrEnum):

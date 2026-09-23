@@ -365,15 +365,16 @@ async def generate_analysis_pdf(analysis: DeepAnalysisDocument) -> bytes:
                 data={"waitForExpression": "window.__pdfReady === true"},
                 timeout=60.0,
             )
-            response.raise_for_status()
-    except httpx.HTTPError:
+
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
         logger.exception(
             f"Deep analysis: PDF service error for {str(analysis.id)}",
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="PDF generation service is unavailable.",
-        )
+        ) from exc
     return response.content
 
 

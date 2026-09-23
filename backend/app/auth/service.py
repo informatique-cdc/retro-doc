@@ -6,6 +6,7 @@ identity providers, token issuance, and user session management.
 """
 
 from app.auth.config import auth_settings
+from app.auth.identity import compute_uid
 from app.auth.providers.base import ProviderIdentity
 from app.auth.providers.registry import get_provider
 from app.auth.schemas import AuthProviderName, TokenClaims, TokenResponse
@@ -15,7 +16,6 @@ from app.auth.tokens import (
     create_refresh_token,
     decode_internal_token,
 )
-from app.auth.utils import compute_uid
 
 
 def _claims_from_identity(identity: ProviderIdentity) -> TokenClaims:

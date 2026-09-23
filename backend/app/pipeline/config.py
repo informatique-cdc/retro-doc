@@ -17,8 +17,11 @@ class PipelineSettings(BaseSettings):
     # Azure Durable Functions
     DURABLE_FUNCTIONS_BASE_URL: str
 
-    # Language support
-    LANGUAGES_CACHE_TTL_S: int = 300  # 5 minutes
+    # Analyzer version cache
+    ANALYZER_VERSION_CACHE_TTL_S: int = 300
+
+    # Pipeline run reconciliation
+    PIPELINE_RUN_RECONCILE_GRACE_PERIOD_S: int = 300
 
 
 pipeline_settings = PipelineSettings()

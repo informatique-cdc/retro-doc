@@ -5,18 +5,21 @@ It is automatically imported by pytest and applies to all tests in the suite.
 Fake environment variables are set in pyproject.toml via pytest-env.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import mongomock.collection
 import mongomock.database
 import pytest
 from beanie import PydanticObjectId, init_beanie
 from httpx import ASGITransport
 from loguru import logger
 from mongomock_motor import AsyncMongoMockClient
+from pymongo import IndexModel
 
+from app import main
 from app.auth.schemas import User
 from app.chat.models import ChatMessageDocument, ChatThreadDocument
 from app.deep_analysis.models import DeepAnalysisDocument
@@ -52,12 +55,14 @@ async def _init_beanie(_mongomock_beanie_compat: None) -> None:
 
 @pytest.fixture
 def _mongomock_beanie_compat(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Let mongomock tolerate beanie 2.x's `list_collection_names` kwargs.
+    """Close two gaps between mongomock and the driver beanie 2.x expects.
 
-    beanie>=2.0 calls `list_collection_names(authorizedCollections=True, nameOnly=True)`
-    during `init_beanie`; mongomock 4.3.0 only accepts `filter`/`session` and raises
-    `TypeError` on the extras. The real motor/pymongo driver accepts them, so we
-    drop the unsupported kwargs to mirror production behaviour in the in-memory mock.
+    `list_collection_names`: `init_beanie` passes `authorizedCollections` and
+    `nameOnly`, which mongomock 4.3.0 rejects with `TypeError`. Dropped them.
+
+    `create_indexes`: mongomock drops `partialFilterExpression`, turning every
+    partial unique index into a total one that rejects writes production
+    accepts. Forwarded it.
     """
     original = mongomock.database.Database.list_collection_names
 
@@ -72,14 +77,35 @@ def _mongomock_beanie_compat(monkeypatch: pytest.MonkeyPatch) -> None:
             self, filter=filter, session=session
         )
 
+    def _create_indexes(
+        self: mongomock.collection.Collection,
+        indexes: list[IndexModel],
+        session: Any = None,
+    ) -> list[str]:
+        return [
+            self.create_index(  # type: ignore[no-untyped-call]
+                index.document["key"].items(),
+                session=session,
+                expireAfterSeconds=index.document.get("expireAfterSeconds"),
+                unique=index.document.get("unique", False),
+                sparse=index.document.get("sparse", False),
+                name=index.document.get("name"),
+                partialFilterExpression=index.document.get("partialFilterExpression"),
+            )
+            for index in indexes
+        ]
+
     monkeypatch.setattr(
         mongomock.database.Database, "list_collection_names", _list_collection_names
     )
+    monkeypatch.setattr(
+        mongomock.collection.Collection, "create_indexes", _create_indexes
+    )
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def _suppress_loguru() -> None:
-    """Disable loguru output during tests to keep output clean."""
+    """Disable loguru output for the whole session to keep output clean."""
     logger.remove()
 
 
@@ -96,7 +122,6 @@ def file_doc(file_id: PydanticObjectId, repo_id: PydanticObjectId) -> FileDocume
         id=file_id,
         repo_id=repo_id,
         path="src/Main.java",
-        file_hash="abc123",
     )
 
 
@@ -107,21 +132,36 @@ def file_id() -> PydanticObjectId:
 
 
 @pytest.fixture
-async def mock_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+async def mock_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Async HTTP client wired to the FastAPI app, with lifespan mocked."""
-    with (
-        patch("app.main.init_blob_storage"),
-        patch("app.main.init_database", new_callable=AsyncMock),
-        patch("app.main.close_database", new_callable=AsyncMock),
-        patch("app.main.close_blob_storage", new_callable=AsyncMock),
-    ):
-        from app.main import app
 
-        transport = ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test/api/v0"
-        ) as async_client:
-            yield async_client
+    monkeypatch.setattr(main, "init_blob_storage", MagicMock())
+    monkeypatch.setattr(main, "init_database", AsyncMock())
+    monkeypatch.setattr(main, "close_database", AsyncMock())
+    monkeypatch.setattr(main, "close_blob_storage", AsyncMock())
+
+    transport = ASGITransport(app=main.app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test/api/v0"
+    ) as async_client:
+        yield async_client
+
+
+@pytest.fixture
+def mock_httpx(monkeypatch: pytest.MonkeyPatch) -> Callable[[AsyncMock], AsyncMock]:
+    """Install a built client as `httpx.AsyncClient` for the duration of a test.
+
+    Takes a client from `tests.unit.mocks.httpx_client` and returns it, so a
+    test both installs and keeps a handle on it in one expression.
+    """
+
+    def _install(client: AsyncMock) -> AsyncMock:
+        monkeypatch.setattr(httpx, "AsyncClient", lambda *_args, **_kwargs: client)
+        return client
+
+    return _install
 
 
 @pytest.fixture
@@ -143,10 +183,18 @@ def payload() -> dict[str, Any]:
 
 @pytest.fixture
 def repo_doc(repo_id: PydanticObjectId, blob_path: str) -> RepoDocument:
-    """A `RepoDocument` with deterministic ID and fields."""
+    """A `RepoDocument` with deterministic ID and fields.
+
+    Stamped by the worker, the steady state of an analyzed repository: the
+    unstamped window between dispatch and the worker's first activity is a
+    transient a test opts into by clearing `ran_analyzer_version`.
+    """
     return RepoDocument(
         id=repo_id,
+        repo_url="code.zip",
         blob_path=blob_path,
+        analyzer_version="v1",
+        ran_analyzer_version="v1",
         languages=["java"],
     )
 

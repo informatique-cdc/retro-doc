@@ -13,7 +13,7 @@ from app.docs.models import AnalysisStats
 from app.pipeline.models import PipelineMeta, PipelineStatus
 
 
-class AnalyzeFileResponse(BaseModel):
+class CreateRepoResponse(BaseModel):
     repo_id: PydanticObjectId
     status: PipelineStatus = PipelineStatus.PENDING
 
@@ -23,19 +23,51 @@ class JoinRepoResponse(BaseModel):
     name: str
 
 
+class PipelineAttempt(BaseModel):
+    """One analysis attempt on a repository.
+
+    `retried_at` is set on the attempts a retry superseded, so a client can tell
+    a failure that was restarted from one that still stands.
+    """
+
+    status: PipelineStatus
+    started_at: datetime
+    finished_at: datetime | None = None
+    retried_at: datetime | None = None
+    meta: PipelineMeta | None = None
+
+
 class PipelineStatusResponse(BaseModel):
+    """A repository's pipeline state, current attempt plus the ones before it.
+
+    `status` and `meta` describe the latest attempt — `attempts[0]` — and keep
+    the meaning they had before the list existed. `attempts` is never empty: a
+    repository with no runs is a 404.
+    """
+
     repo_id: PydanticObjectId
     status: PipelineStatus
     meta: PipelineMeta | None = None
+    attempts: list[PipelineAttempt] = Field(default_factory=list)
+
+
+class RelaunchRepoRequest(BaseModel):
+    token: str | None = None
+
+
+class RelaunchRepoResponse(BaseModel):
+    repo_id: PydanticObjectId
+    status: PipelineStatus = PipelineStatus.PENDING
 
 
 class RepoResponse(BaseModel):
     repo_id: PydanticObjectId
     name: str
-    repo_url: str | None
-    repo_branch: str | None
+    repo_url: str
     repo_hash: str | None
     languages: list[str]
+    analyzer_version: str | None
+    stale: bool
     color: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -58,7 +90,6 @@ class UpdateUserRepoRequest(BaseModel):
 class FileResponse(BaseModel):
     file_id: PydanticObjectId
     path: str
-    file_hash: str
 
 
 class RepoFilesResponse(BaseModel):
