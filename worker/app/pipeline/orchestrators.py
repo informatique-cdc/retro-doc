@@ -35,26 +35,53 @@ def analyze(context: DurableOrchestrationContext) -> Any:
         list: Results from the activity calls.
     """
     payload = context.get_input()
+    source = payload["source"]
     blob_path = payload["blob_path"]
     languages = payload.get("languages") or []
     repo_id = payload["repo_id"]
-    pipeline_run_id = payload["pipeline_run_id"]
+    # `instance_id` is the id of the PipelineRunDocument every activity patches. That field is also used
+    # internally as the pipeline run id by Azure Durable Functions.
+    pipeline_run_id = payload["instance_id"]
 
     # Empty list = "all supported languages"; a non-empty list is a filter
     targeted: set[str] = set(languages)
 
     try:
-        # Step 1: Extract zip and get list of file blob paths
-        file_paths: list[str] = yield context.call_activity_with_retry(
-            "extract_zip",
+        # Step 0: Mark the run started and record which analyzer version
+        # produces these artifacts
+        yield context.call_activity_with_retry(
+            "stamp_analyzer_version",
             _retry,
-            json.dumps(
-                {
-                    "blob_path": blob_path,
-                    "pipeline_run_id": pipeline_run_id,
-                }
-            ),
+            json.dumps({"repo_id": repo_id, "pipeline_run_id": pipeline_run_id}),
         )
+
+        # Step 1: Materialize the source and get list of file blob paths
+        if source == "git":
+            file_paths: list[str] = yield context.call_activity_with_retry(
+                "clone_repo",
+                _retry,
+                json.dumps(
+                    {
+                        "blob_path": blob_path,
+                        "pipeline_run_id": pipeline_run_id,
+                        "repo_url": payload["repo_url"],
+                        "commit": payload.get("commit"),
+                        "ref": payload.get("ref"),
+                        "token": payload.get("token"),
+                    }
+                ),
+            )
+        else:
+            file_paths = yield context.call_activity_with_retry(
+                "extract_zip",
+                _retry,
+                json.dumps(
+                    {
+                        "blob_path": blob_path,
+                        "pipeline_run_id": pipeline_run_id,
+                    }
+                ),
+            )
 
         # Step 2: Partition files into analyzable (supported & targeted) ones,
         # grouped by detected language, and "other" files which are only

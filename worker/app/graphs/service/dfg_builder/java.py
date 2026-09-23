@@ -8,7 +8,6 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
-import javalang
 import networkx as nx
 from javalang.tree import (
     Assignment,
@@ -32,8 +31,10 @@ from javalang.tree import (
 )
 from loguru import logger
 
+from app.graphs.exceptions import PreparedSourceRequiredError
 from app.graphs.service.ast_parser import JavaASTParserService
 from app.graphs.service.dfg_builder.base import DFGBuilderService
+from app.graphs.service.preparer.base import PreparedSource
 
 
 @dataclass
@@ -75,26 +76,37 @@ class _DFGState:
 class JavaDFGBuilderService(DFGBuilderService):
     """Build data flow graphs for Java methods."""
 
-    def build(self, source_code: str, file_path: str) -> list[dict[str, Any]]:
+    def build(
+        self,
+        source_code: str,
+        file_path: str,
+        prepared: PreparedSource,
+    ) -> list[dict[str, Any]]:
         """Build DFGs for all methods in a Java file.
 
         Args:
             source_code(str): The raw Java source code.
             file_path(str): The file path for metadata/logging purposes.
+            prepared(PreparedSource): The `javalang` tree from
+                `JavaSourcePreparerService`.
 
         Returns:
             list[dict[str, Any]]: List of dicts, one per method DFG.
 
         Raises:
+            PreparedSourceRequiredError: If `prepared` is `None`.
             Exception: If parsing fails.
         """
-        tree = javalang.parse.parse(source_code)
+        if prepared is None:
+            raise PreparedSourceRequiredError(
+                f"DFG build needs a prepared source for '{file_path}'"
+            )
+
+        tree = prepared
 
         # Reuse the AST parser to obtain canonical, overload-safe method keys, owner
-        # FQNs and field keys/types without duplicating its type-resolution logic.
-        # Context is mapped back to methods by position, since the AST parser iterates
-        # the same parsed tree in the same order.
-        contexts = self._build_context_map(source_code, file_path)
+        # FQNs and field keys/types without duplicating its type-resolution logic
+        contexts = JavaASTParserService().extract_method_contexts(tree)
 
         results: list[dict[str, Any]] = []
 
@@ -152,33 +164,6 @@ class JavaDFGBuilderService(DFGBuilderService):
                 results.append(dfg)
 
         return results
-
-    def _build_context_map(
-        self, source_code: str, file_path: str
-    ) -> dict[str, dict[str, Any]]:
-        """Build a map of owner name to its canonical method/field context.
-
-        Delegates to `JavaASTParserService.extract_method_contexts` so the DFG
-        `scope` and `var_key`s share the AST's canonical
-        `method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>` and
-        `field:<ownerFQN>#<name>:<typeFQN>` keys. Java's graph builders share the
-        Java AST parser's canonical keys as the single identity authority.
-
-        Args:
-            source_code(str): The raw Java source code.
-            file_path(str): The file path used for AST metadata.
-
-        Returns:
-            dict[str, dict[str, Any]]: Mapping of class/interface name to its
-                context (owner_fqn, ordered methods, fields). Empty on failure.
-        """
-        try:
-            return JavaASTParserService().extract_method_contexts(source_code)
-        except Exception:
-            logger.exception(
-                f"Graphs(DFG Java): AST context extraction failed for '{file_path}'"
-            )
-            return {}
 
     # ------------------------------------------------------------------
     # Node / edge construction

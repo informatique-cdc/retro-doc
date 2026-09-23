@@ -7,7 +7,6 @@ source code with javalang and walking method bodies.
 import hashlib
 from typing import Any
 
-import javalang
 import networkx as nx
 from javalang.tree import (
     Assignment,
@@ -33,19 +32,28 @@ from javalang.tree import (
 )
 from loguru import logger
 
+from app.graphs.exceptions import PreparedSourceRequiredError
 from app.graphs.service.ast_parser import JavaASTParserService
 from app.graphs.service.cfg_builder.base import CFGBuilderService
+from app.graphs.service.preparer.base import PreparedSource
 
 
 class JavaCFGBuilderService(CFGBuilderService):
     """Build control flow graphs for Java methods."""
 
-    def build(self, source_code: str, file_path: str) -> list[dict[str, Any]]:
+    def build(
+        self,
+        source_code: str,
+        file_path: str,
+        prepared: PreparedSource,
+    ) -> list[dict[str, Any]]:
         """Build CFGs for all methods in a Java file.
 
         Args:
             source_code(str): The raw Java source code.
             file_path(str): The file path for metadata/logging purposes.
+            prepared(PreparedSource): The `javalang` tree from
+                `JavaSourcePreparerService`.
 
         Returns:
             list[dict[str, Any]]: List of dicts, one per method,
@@ -53,15 +61,20 @@ class JavaCFGBuilderService(CFGBuilderService):
                 edges, and metrics.
 
         Raises:
+            PreparedSourceRequiredError: If `prepared` is `None`.
             Exception: If parsing fails.
         """
-        tree = javalang.parse.parse(source_code)
+        if prepared is None:
+            raise PreparedSourceRequiredError(
+                f"CFG build needs a prepared source for '{file_path}'"
+            )
+
+        tree = prepared
 
         # Reuse the AST parser to obtain canonical, overload-safe method keys
         # (method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>) without duplicating its
-        # type-resolution logic. Keys are mapped back to methods by position, since
-        # the AST parser iterates the same parsed tree in the same order.
-        key_map = self._build_key_map(source_code, file_path)
+        # type-resolution logic
+        key_map = JavaASTParserService().extract_method_keys(tree)
 
         results: list[dict[str, Any]] = []
 
@@ -95,31 +108,6 @@ class JavaCFGBuilderService(CFGBuilderService):
                         results.append(cfg)
 
         return results
-
-    def _build_key_map(self, source_code: str, file_path: str) -> dict[str, list[str]]:
-        """Build a map of owner name to its ordered list of canonical method keys.
-
-        Delegates to `JavaASTParserService.extract_method_keys` so the CFG `scope`
-        matches the AST's canonical `method:<ownerFQN>#<name>(<paramFQNs>):<retFQN>`
-        key. Java's graph builders share the Java AST parser's canonical key as the
-        single identity authority. Method keys are listed in declaration order so
-        they can be mapped back to javalang method nodes by position (overload-safe).
-
-        Args:
-            source_code(str): The raw Java source code.
-            file_path(str): The file path used for AST metadata.
-
-        Returns:
-            dict[str, list[str]]: Mapping of class/interface name to the ordered
-                list of canonical method keys.
-        """
-        try:
-            return JavaASTParserService().extract_method_keys(source_code)
-        except Exception:
-            logger.exception(
-                f"Graphs(CFG Java): AST key extraction failed for '{file_path}'"
-            )
-            return {}
 
     # ------------------------------------------------------------------
     # CFG construction

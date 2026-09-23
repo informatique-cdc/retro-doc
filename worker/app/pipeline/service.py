@@ -6,7 +6,9 @@ This module defines the service layer for the pipeline-related operations.
 import asyncio
 import posixpath
 import queue
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from beanie import PydanticObjectId
@@ -22,8 +24,12 @@ from app.docs.service import (
     persist_documentation,
     persist_repo_meta,
 )
+from app.git.service import clone_at_commit
+from app.graphs.exceptions import PreparedSourceRequiredError
 from app.graphs.models import CFGDocument, DFGDocument
 from app.graphs.service import (
+    GraphServices,
+    PreparedSource,
     get_graph_services,
     persist_ast,
     persist_scoped_graphs,
@@ -31,7 +37,14 @@ from app.graphs.service import (
 from app.pipeline.config import pipeline_settings
 from app.pipeline.models import PipelineMeta, PipelineRunDocument, PipelineStatus
 from app.pipeline.schemas import FileResult
-from app.pipeline.utils import stream_download, stream_extract, stream_upload
+from app.pipeline.utils import (
+    mark_materialized,
+    reuse_materialized,
+    stream_download,
+    stream_extract,
+    stream_upload,
+    stream_walk,
+)
 from app.rag.service import index_file_documentation
 from app.repos.models import FileDocument
 from app.repos.service import persist_file
@@ -47,6 +60,125 @@ def _blob_path_to_relative(blob_path: str) -> str:
         str: The path relative to the repository root.
     """
     return posixpath.join(*blob_path.split("/")[5:])
+
+
+def _build_graphs(
+    services: GraphServices,
+    source_code: str,
+    relative_path: str,
+    blob_path: str,
+) -> tuple[
+    dict[str, Any] | None, list[dict[str, Any]] | None, list[dict[str, Any]] | None
+]:
+    """Build the AST, CFG and DFG of one file, each failure-isolated.
+
+    Preparation is not a gate. A preparer that fails leaves `prepared` at `None`
+    and every builder still runs. Only the ones that derive from it opt out.
+
+    Args:
+        services(GraphServices): The graph services registered for the language.
+        source_code(str): The source code as a string.
+        relative_path(str): The path relative to the repository root.
+        blob_path(str): The blob storage path of the source file (for logging).
+
+    Returns:
+        tuple: `(ast_data, cfg_results, dfg_results)`, each `None` when its
+            builder failed or was skipped.
+    """
+    prepared: PreparedSource = None
+    try:
+        prepared = services.preparer.prepare(source_code, relative_path)
+    except Exception:
+        logger.exception(f"Pipeline: source preparation failed for '{blob_path}'")
+
+    ast_data: dict[str, Any] | None = None
+    cfg_results: list[dict[str, Any]] | None = None
+    dfg_results: list[dict[str, Any]] | None = None
+
+    try:
+        ast_data = services.ast_parser.parse(source_code, relative_path, prepared)
+    except PreparedSourceRequiredError:
+        logger.warning(
+            f"Pipeline: AST parse skipped for '{blob_path}' as preparer failed"
+        )
+    except Exception:
+        logger.exception(f"Pipeline: AST parse failed for '{blob_path}'")
+
+    try:
+        cfg_results = services.cfg_builder.build(source_code, relative_path, prepared)
+    except PreparedSourceRequiredError:
+        logger.warning(
+            f"Pipeline: CFG build skipped for '{blob_path}' as preparer failed"
+        )
+    except Exception:
+        logger.exception(f"Pipeline: CFG build failed for '{blob_path}'")
+
+    try:
+        dfg_results = services.dfg_builder.build(source_code, relative_path, prepared)
+    except PreparedSourceRequiredError:
+        logger.warning(
+            f"Pipeline: DFG build skipped for '{blob_path}' as preparer failed"
+        )
+    except Exception:
+        logger.exception(f"Pipeline: DFG build failed for '{blob_path}'")
+
+    return ast_data, cfg_results, dfg_results
+
+
+async def _document_file(
+    repo_id: PydanticObjectId,
+    file_id: PydanticObjectId,
+    relative_path: str,
+    source_code: str,
+    ast_data: dict[str, Any] | None,
+    cfg_results: list[dict[str, Any]] | None,
+    dfg_results: list[dict[str, Any]] | None,
+    language: Language,
+    blob_path: str,
+) -> tuple[bool, str | None]:
+    """Generate and persist the documentation of one file, failure-isolated.
+
+    An already-persisted documentation is reused as-is, so a re-run never pays
+    for a second LLM call.
+
+    Args:
+        repo_id(PydanticObjectId): The repository ID.
+        file_id(PydanticObjectId): The file ID.
+        relative_path(str): The path relative to the repository root.
+        source_code(str): The source code as a string.
+        ast_data(dict[str, Any] | None): The AST, or `None` when unavailable.
+        cfg_results(list[dict[str, Any]] | None): The CFGs, or `None` when
+            unavailable.
+        dfg_results(list[dict[str, Any]] | None): The DFGs, or `None` when
+            unavailable.
+        language(Language): The programming language.
+        blob_path(str): The blob storage path of the source file (for logging).
+
+    Returns:
+        tuple[bool, str | None]: `(persisted, content)`, where `content` is the
+            documentation available for indexing and `None` when nothing was
+            persisted.
+    """
+    try:
+        existing_doc = await FileDocumentationDocument.find_one(
+            FileDocumentationDocument.repo_id == repo_id,
+            FileDocumentationDocument.file_id == file_id,
+        )
+        if existing_doc:
+            return True, existing_doc.content
+
+        doc = await generate_documentation_file(
+            relative_path, source_code, ast_data, cfg_results, dfg_results, language
+        )
+        if not doc:
+            logger.warning(f"Pipeline: Empty documentation generated for '{blob_path}'")
+            return False, None
+
+        await persist_documentation(repo_id, file_id, doc)
+        return True, doc
+    except Exception:
+        logger.exception(f"Pipeline: Documentation generation failed for '{blob_path}'")
+        return False, None
 
 
 def _skipped_file_result() -> FileResult:
@@ -99,7 +231,7 @@ async def compute_file_representations(
 
     # Step 1: Create FileDocument
     try:
-        file_id = await persist_file(repo_id, relative_path, file_hash="")
+        file_id = await persist_file(repo_id, relative_path)
     except Exception:
         logger.exception(f"Pipeline: FileDocument persist failed for '{blob_path}'")
         return _skipped_file_result()
@@ -107,27 +239,10 @@ async def compute_file_representations(
     # Step 2: Download blob once
     source_code = await get_source_code_from_blob(blob_path)
 
-    # Step 3: Build graphs independently:
-    ast_data: dict[str, Any] | None = None
-    cfg_results: list[dict[str, Any]] | None = None
-    dfg_results: list[dict[str, Any]] | None = None
-
-    ast_parser, cfg_builder, dfg_builder = get_graph_services(language)
-
-    try:
-        ast_data = ast_parser.parse(source_code, relative_path)
-    except Exception:
-        logger.exception(f"Pipeline: AST parse failed for '{blob_path}'")
-
-    try:
-        cfg_results = cfg_builder.build(source_code, relative_path)
-    except Exception:
-        logger.exception(f"Pipeline: CFG build failed for '{blob_path}'")
-
-    try:
-        dfg_results = dfg_builder.build(source_code, relative_path)
-    except Exception:
-        logger.exception(f"Pipeline: DFG build failed for '{blob_path}'")
+    # Step 3: Build graphs independently
+    ast_data, cfg_results, dfg_results = _build_graphs(
+        get_graph_services(language), source_code, relative_path, blob_path
+    )
 
     # Step 4: Persist all graphs concurrently
     ast_persisted, (cfg_ok, cfg_err), (dfg_ok, dfg_err) = await asyncio.gather(
@@ -137,38 +252,20 @@ async def compute_file_representations(
     )
 
     # Step 5: Generate documentation via LLM
-    doc_persisted = False
-    doc: str | None = None
-    existing_doc: FileDocumentationDocument | None = None
-    try:
-        existing_doc = await FileDocumentationDocument.find_one(
-            FileDocumentationDocument.repo_id == repo_id,
-            FileDocumentationDocument.file_id == file_id,
-        )
-        if existing_doc:
-            doc_persisted = True
-        else:
-            doc = await generate_documentation_file(
-                relative_path,
-                source_code,
-                ast_data,
-                cfg_results,
-                dfg_results,
-                language,
-            )
-            if doc:
-                await persist_documentation(repo_id, file_id, doc)
-                doc_persisted = True
-            else:
-                logger.warning(
-                    f"Pipeline: Empty documentation generated for '{blob_path}'"
-                )
-    except Exception:
-        logger.exception(f"Pipeline: Documentation generation failed for '{blob_path}'")
+    doc_persisted, doc_content = await _document_file(
+        repo_id,
+        file_id,
+        relative_path,
+        source_code,
+        ast_data,
+        cfg_results,
+        dfg_results,
+        language,
+        blob_path,
+    )
 
     # Step 6: Index documentation in vectorstore for RAG
     rag_persisted = False
-    doc_content = doc if doc else (existing_doc.content if existing_doc else None)
     if doc_persisted and doc_content:
         rag_persisted = await index_file_documentation(
             repo_id=str(repo_id),
@@ -196,39 +293,6 @@ async def compute_file_representations(
     )
 
 
-async def persist_file_documents(
-    repo_id: PydanticObjectId,
-    blob_paths: list[str],
-) -> tuple[int, int]:
-    """Create a FileDocument for each blob path without any further analysis.
-
-    Used for files that are kept in the repository catalog but are not
-    analyzed (non-targeted language, unsupported extension, etc.).
-
-    Args:
-        repo_id(PydanticObjectId): The repository ID.
-        blob_paths(list[str]): The blob storage paths of the files to record.
-
-    Returns:
-        tuple[int, int]: `(succeeded, failed)` counts.
-    """
-    docs = [
-        FileDocument(
-            repo_id=repo_id,
-            path=_blob_path_to_relative(blob_path),
-            file_hash="",
-        )
-        for blob_path in blob_paths
-    ]
-    succeeded, failed, error_codes = await mongodb_retry_insert_many(FileDocument, docs)
-    if failed:
-        logger.warning(
-            f"Pipeline: {failed} file document(s) failed to persist for repo "
-            f"'{repo_id}' (codes: {error_codes})"
-        )
-    return succeeded, failed
-
-
 async def compute_repo_representations(
     repo_id: PydanticObjectId,
     stats: dict[str, int | dict[str, int]],
@@ -253,50 +317,6 @@ async def compute_repo_representations(
     await persist_repo_meta(repo_id, content, analysis_stats)
 
 
-async def stream_extract_zip(blob_path: str) -> list[str]:
-    """Extract a ZIP file from blob storage and upload every extracted file
-    back to blob storage.
-
-    Args:
-        blob_path(str): The blob storage path of the ZIP file.
-
-    Returns:
-        list[str]: A list of blob storage paths for the extracted files.
-    """
-
-    logger.debug(f"Pipeline: Downloading ZIP blob '{blob_path}'")
-
-    container = get_container_client()
-    stream = await container.download_blob(blob_path)
-    loop = asyncio.get_running_loop()
-
-    # Derive the extracted prefix from the ZIP blob path
-    extracted_prefix = blob_path.removesuffix(".zip")
-
-    # Bounded queues for backpressure between stages
-    chunk_q: queue.Queue[bytes | None] = queue.Queue(
-        maxsize=pipeline_settings.ANALYZE_ZIP_CHUNK_Q_SIZE
-    )
-    file_q: asyncio.Queue[tuple[str, bytes] | None] = asyncio.Queue(
-        maxsize=pipeline_settings.ANALYZE_ZIP_FILE_Q_SIZE
-    )
-
-    extract_future = loop.run_in_executor(
-        None, stream_extract, chunk_q, file_q, loop, extracted_prefix
-    )
-    _, uploaded_paths = await asyncio.gather(
-        stream_download(stream, chunk_q),
-        stream_upload(file_q, container),
-    )
-    await extract_future
-
-    logger.debug(
-        f"Pipeline: Extracted {len(uploaded_paths)} file(s) from '{blob_path}'"
-    )
-
-    return uploaded_paths
-
-
 async def get_source_code_from_blob(blob_path: str) -> str:
     """Get the source code content from a blob storage path.
 
@@ -312,6 +332,38 @@ async def get_source_code_from_blob(blob_path: str) -> str:
     source_code = raw.decode(errors="replace")
 
     return source_code
+
+
+async def persist_file_documents(
+    repo_id: PydanticObjectId,
+    blob_paths: list[str],
+) -> tuple[int, int]:
+    """Create a FileDocument for each blob path without any further analysis.
+
+    Used for files that are kept in the repository catalog but are not
+    analyzed (non-targeted language, unsupported extension, etc.).
+
+    Args:
+        repo_id(PydanticObjectId): The repository ID.
+        blob_paths(list[str]): The blob storage paths of the files to record.
+
+    Returns:
+        tuple[int, int]: `(succeeded, failed)` counts.
+    """
+    docs = [
+        FileDocument(
+            repo_id=repo_id,
+            path=_blob_path_to_relative(blob_path),
+        )
+        for blob_path in blob_paths
+    ]
+    succeeded, failed, error_codes = await mongodb_retry_insert_many(FileDocument, docs)
+    if failed:
+        logger.warning(
+            f"Pipeline: {failed} file document(s) failed to persist for repo "
+            f"'{repo_id}' (codes: {error_codes})"
+        )
+    return succeeded, failed
 
 
 async def persist_pipeline_run(
@@ -337,6 +389,124 @@ async def persist_pipeline_run(
     return await PipelineRunDocument.find_one(  # type: ignore
         PipelineRunDocument.id == pipeline_run_id
     ).update(update_expr)
+
+
+async def stream_clone_repo(
+    blob_path: str,
+    repo_url: str,
+    commit: str | None,
+    ref: str | None,
+    token: str | None,
+) -> list[str]:
+    """Clone a git repository at a pinned commit and upload its source files
+    to blob storage.
+
+    The clone is content-addressed on (repository, commit) and shared across
+    analyzer versions, so an already materialized commit is reused as is.
+
+    Args:
+        blob_path(str): The blob storage prefix to upload the source under.
+        repo_url(str): The remote repository URL.
+        commit(str | None): The commit to pin to. None checks out the tip.
+        ref(str | None): The branch the commit was resolved from, if known.
+        token(str | None): The access token for a private repository, if any.
+
+    Returns:
+        list[str]: A list of blob storage paths for the uploaded files.
+    """
+    container = get_container_client()
+
+    reused = await reuse_materialized(container, blob_path)
+    if reused:
+        logger.debug(
+            f"Pipeline: Reusing {len(reused)} already cloned file(s) "
+            f"under '{blob_path}'"
+        )
+        return reused
+
+    logger.debug(f"Pipeline: Cloning '{repo_url}' at '{commit}'")
+
+    loop = asyncio.get_running_loop()
+
+    with tempfile.TemporaryDirectory(prefix="retro-doc-clone-") as tmp_dir:
+        checkout = Path(tmp_dir) / "repo"
+        await clone_at_commit(checkout, repo_url, commit, ref, token)
+
+        # Bounded queue for backpressure between the walk and the upload
+        file_q: asyncio.Queue[tuple[str, bytes] | None] = asyncio.Queue(
+            maxsize=pipeline_settings.ANALYZE_CLONE_FILE_Q_SIZE
+        )
+
+        walk_future = loop.run_in_executor(
+            None, stream_walk, checkout, file_q, loop, blob_path
+        )
+        uploaded_paths = await stream_upload(file_q, container)
+        await walk_future
+
+    await mark_materialized(container, blob_path)
+
+    logger.debug(f"Pipeline: Cloned {len(uploaded_paths)} file(s) from '{repo_url}'")
+
+    return uploaded_paths
+
+
+async def stream_extract_zip(blob_path: str) -> list[str]:
+    """Extract a ZIP file from blob storage and upload every extracted file
+    back to blob storage.
+
+    The archive sits at a one-off path the backend mints per upload and never
+    writes again, and that path carries no analyzer version, so a re-analysis
+    at a newer one reuses the extracted tree as is.
+
+    Args:
+        blob_path(str): The blob storage path of the ZIP file.
+
+    Returns:
+        list[str]: A list of blob storage paths for the extracted files.
+    """
+    container = get_container_client()
+
+    # Derive the extracted prefix from the ZIP blob path
+    extracted_prefix = blob_path.removesuffix(".zip")
+
+    # Checked before the download, so a reuse never opens a stream on the archive
+    reused = await reuse_materialized(container, extracted_prefix)
+    if reused:
+        logger.debug(
+            f"Pipeline: Reusing {len(reused)} already extracted file(s) "
+            f"under '{extracted_prefix}'"
+        )
+        return reused
+
+    logger.debug(f"Pipeline: Downloading ZIP blob '{blob_path}'")
+
+    stream = await container.download_blob(blob_path)
+    loop = asyncio.get_running_loop()
+
+    # Bounded queues for backpressure between stages
+    chunk_q: queue.Queue[bytes | None] = queue.Queue(
+        maxsize=pipeline_settings.ANALYZE_ZIP_CHUNK_Q_SIZE
+    )
+    file_q: asyncio.Queue[tuple[str, bytes] | None] = asyncio.Queue(
+        maxsize=pipeline_settings.ANALYZE_ZIP_FILE_Q_SIZE
+    )
+
+    extract_future = loop.run_in_executor(
+        None, stream_extract, chunk_q, file_q, loop, extracted_prefix
+    )
+    _, uploaded_paths = await asyncio.gather(
+        stream_download(stream, chunk_q),
+        stream_upload(file_q, container),
+    )
+    await extract_future
+
+    await mark_materialized(container, extracted_prefix)
+
+    logger.debug(
+        f"Pipeline: Extracted {len(uploaded_paths)} file(s) from '{blob_path}'"
+    )
+
+    return uploaded_paths
 
 
 async def update_pipeline_run(

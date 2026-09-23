@@ -16,6 +16,7 @@ class PipelineSettings(BaseSettings):
 
     # Orchestrator / activity
     ANALYZE_BATCH_SIZE: int = 10
+    ANALYZE_CLONE_FILE_Q_SIZE: int = 4
     ANALYZE_FILE_CONCURRENCY: int = 3
     ANALYZE_RETRY_ATTEMPTS: int = 3
     ANALYZE_RETRY_INTERVAL_MS: int = 2000

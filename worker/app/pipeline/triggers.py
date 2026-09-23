@@ -49,8 +49,12 @@ async def start_analysis(
             status_code=422,
         )
 
-    instance_id = await client.start_new(
-        "analyze", client_input=request.model_dump(mode="json")
+    # The caller owns the instance id: it is the PipelineRunDocument id, so the
+    # run stays queryable and a missing instance proves the dispatch never landed.
+    await client.start_new(
+        "analyze",
+        instance_id=request.instance_id,
+        client_input=request.model_dump(mode="json"),
     )
-    response = client.create_check_status_response(req, instance_id)
+    response = client.create_check_status_response(req, request.instance_id)
     return response  # type: ignore

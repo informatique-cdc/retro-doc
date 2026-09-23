@@ -12,6 +12,7 @@ from app.pipeline.activities import pipeline_activity_bp
 from app.pipeline.orchestrators import pipeline_orch_bp
 from app.pipeline.triggers import pipeline_trigger_bp
 from app.purge.triggers import purge_trigger_bp
+from app.version.triggers import version_trigger_bp
 
 # Blueprints to register
 blueprints = [
@@ -21,6 +22,7 @@ blueprints = [
     pipeline_orch_bp,
     pipeline_trigger_bp,
     purge_trigger_bp,
+    version_trigger_bp,
 ]
 
 

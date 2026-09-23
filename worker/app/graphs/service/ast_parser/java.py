@@ -10,7 +10,6 @@ import hashlib
 from collections.abc import Callable
 from typing import Any
 
-import javalang
 from javalang.tree import (
     Assignment,
     BlockStatement,
@@ -31,7 +30,9 @@ from javalang.tree import (
     WhileStatement,
 )
 
+from app.graphs.exceptions import PreparedSourceRequiredError
 from app.graphs.service.ast_parser.base import ASTParserService
+from app.graphs.service.preparer.base import PreparedSource
 
 
 class JavaASTParserService(ASTParserService):
@@ -78,20 +79,33 @@ class JavaASTParserService(ASTParserService):
         }
     )
 
-    def parse(self, source_code: str, file_path: str) -> dict[str, Any]:
+    def parse(
+        self,
+        source_code: str,
+        file_path: str,
+        prepared: PreparedSource,
+    ) -> dict[str, Any]:
         """Parse Java source code and return AST data.
 
         Args:
             source_code(str): The Java source code as a string.
             file_path(str): The file path for metadata/logging purposes.
+            prepared(PreparedSource): The `javalang` tree from
+                `JavaSourcePreparerService`.
 
         Returns:
             dict[str, Any]: Dictionary containing AST data.
 
         Raises:
+            PreparedSourceRequiredError: If `prepared` is `None`.
             Exception: If parsing fails.
         """
-        tree = javalang.parse.parse(source_code)
+        if prepared is None:
+            raise PreparedSourceRequiredError(
+                f"AST parse needs a prepared source for '{file_path}'"
+            )
+
+        tree = prepared
 
         total_lines = source_code.count("\n") + 1
         package = tree.package.name if tree.package else None
@@ -112,12 +126,12 @@ class JavaASTParserService(ASTParserService):
             "enums": self._extract_enums(tree, file_path, package, total_lines),
         }
 
-    def extract_method_contexts(self, source_code: str) -> dict[str, dict[str, Any]]:
+    def extract_method_contexts(self, tree: Any) -> dict[str, dict[str, Any]]:
         """Extract per-owner canonical context for graph builders that need
         more than method keys (the Java DFG builder).
 
-        The richer sibling of `extract_method_keys`: same parse, iteration order
-        and simple-name keying, so positional alignment with a javalang traversal
+        The richer sibling of `extract_method_keys`: same iteration order and
+        simple-name keying, so positional alignment with a javalang traversal
         and the same-simple-name collapse are identical. It additionally exposes
         the owner FQN, each method's resolved parameters, and the canonical field
         keys/types — everything required to build canonical `var_key`s — all from
@@ -127,8 +141,11 @@ class JavaASTParserService(ASTParserService):
         CFG only needs the keys and so uses the lighter `extract_method_keys`;
         the DFG uses this when it also needs field/param identity.
 
+        Takes the tree rather than the source so the caller's own traversal and
+        this extraction are guaranteed to walk the very same nodes.
+
         Args:
-            source_code(str): The raw Java source code.
+            tree(Any): The parsed `javalang` compilation unit.
 
         Returns:
             dict[str, dict[str, Any]]: Mapping of class/interface simple name to a
@@ -136,11 +153,7 @@ class JavaASTParserService(ASTParserService):
                 `key` and resolved `parameters`), and a `fields` map keyed by simple
                 field name (each with canonical `key`, `owner_fqn`, `type_simple`,
                 `type_fqn`).
-
-        Raises:
-            Exception: If parsing fails.
         """
-        tree = javalang.parse.parse(source_code)
         package = tree.package.name if tree.package else None
         _, import_map = self._extract_imports(tree)
 
@@ -179,7 +192,7 @@ class JavaASTParserService(ASTParserService):
                 }
         return contexts
 
-    def extract_method_keys(self, source_code: str) -> dict[str, list[str]]:
+    def extract_method_keys(self, tree: Any) -> dict[str, list[str]]:
         """Extract canonical method keys without the full AST extraction.
 
         A lighter entry point than `parse()` for consumers (the Java CFG/DFG
@@ -192,17 +205,16 @@ class JavaASTParserService(ASTParserService):
         back to javalang method nodes by position (overload-safe). All methods
         are included, including abstract/bodyless ones, to preserve that alignment.
 
+        Takes the tree rather than the source so the caller's own traversal and
+        this extraction are guaranteed to walk the very same nodes.
+
         Args:
-            source_code(str): The raw Java source code.
+            tree(Any): The parsed `javalang` compilation unit.
 
         Returns:
             dict[str, list[str]]: Mapping of class/interface simple name to its
                 ordered list of canonical method keys.
-
-        Raises:
-            Exception: If parsing fails.
         """
-        tree = javalang.parse.parse(source_code)
         package = tree.package.name if tree.package else None
         _, import_map = self._extract_imports(tree)
 

@@ -11,9 +11,10 @@ from pymongo import IndexModel
 
 
 class RepoDocument(Document):
-    repo_url: str | None = None
-    repo_branch: str | None = None
+    repo_url: str
     repo_hash: str | None = None
+    analyzer_version: str
+    ran_analyzer_version: str | None = None
     blob_path: str
     user_count: int = 1
     languages: list[str] = Field(default_factory=list)
@@ -28,7 +29,6 @@ class RepoDocument(Document):
 class FileDocument(Document):
     repo_id: PydanticObjectId
     path: str
-    file_hash: str
 
     class Settings:
         name = "files"

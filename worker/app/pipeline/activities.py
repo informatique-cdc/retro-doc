@@ -19,11 +19,96 @@ from app.pipeline.service import (
     compute_file_representations,
     compute_repo_representations,
     persist_file_documents,
+    stream_clone_repo,
     stream_extract_zip,
     update_pipeline_run,
 )
+from app.repos.service import stamp_ran_analyzer_version
+from app.version.service import get_analyzer_version
 
 pipeline_activity_bp = Blueprint()
+
+
+@pipeline_activity_bp.activity_trigger(input_name="payload")
+async def clone_repo(payload: str) -> list[str]:
+    """Clone a git repository at a pinned commit and upload its source files.
+
+    Also reports progress before cloning and the file count afterwards,
+    avoiding two extra orchestrator replay cycles.
+
+    Args:
+        payload(str): JSON string with keys `blob_path`, `pipeline_run_id`,
+            `repo_url`, `commit`, `ref` and `token`.
+
+    Returns:
+        list[str]: list of blob paths for the uploaded files.
+    """
+    data = json.loads(payload)
+    blob_path: str = data["blob_path"]
+    pipeline_run_id = PydanticObjectId(data["pipeline_run_id"])
+
+    await update_pipeline_run(
+        pipeline_run_id=pipeline_run_id,
+        meta=PipelineMeta(message="Cloning the repository...", step="clone"),
+    )
+
+    uploaded_paths = await stream_clone_repo(
+        blob_path,
+        data["repo_url"],
+        data.get("commit"),
+        data.get("ref"),
+        data.get("token"),
+    )
+
+    await update_pipeline_run(
+        pipeline_run_id=pipeline_run_id,
+        meta=PipelineMeta(
+            message=f"{len(uploaded_paths)} file(s) cloned. Analyzing file(s)...",
+            step="analyze",
+        ),
+    )
+
+    return uploaded_paths
+
+
+@pipeline_activity_bp.activity_trigger(input_name="payload")
+async def extract_zip(payload: str) -> list[str]:
+    """Extract a zip from blob storage and upload matching files back.
+
+    Runs a 3-stage streaming pipeline so the full zip never resides in
+    memory at once:
+
+      async download → queue → sync stream_unzip (thread) → queue → async upload
+
+    Also reports progress before extraction and the file count after
+    extraction, avoiding two extra orchestrator replay cycles.
+
+    Args:
+        payload(str): JSON string with keys `blob_path` and `pipeline_run_id`.
+
+    Returns:
+        list[str]: list of blob paths for the extracted files.
+    """
+    data = json.loads(payload)
+    blob_path: str = data["blob_path"]
+    pipeline_run_id = PydanticObjectId(data["pipeline_run_id"])
+
+    await update_pipeline_run(
+        pipeline_run_id=pipeline_run_id,
+        meta=PipelineMeta(message="Extracting the ZIP...", step="extract"),
+    )
+
+    uploaded_paths = await stream_extract_zip(blob_path)
+
+    await update_pipeline_run(
+        pipeline_run_id=pipeline_run_id,
+        meta=PipelineMeta(
+            message=f"{len(uploaded_paths)} file(s) extracted. Analyzing file(s)...",
+            step="analyze",
+        ),
+    )
+
+    return uploaded_paths
 
 
 @pipeline_activity_bp.activity_trigger(input_name="payload")
@@ -45,45 +130,27 @@ async def patch_pipeline_run(payload: str) -> None:
 
 
 @pipeline_activity_bp.activity_trigger(input_name="payload")
-async def extract_zip(payload: str) -> list[str]:
-    """Extract a zip from blob storage and upload matching files back.
+async def persist_file_docs(payload: str) -> dict[str, int]:
+    """Create file documents for files that are kept but not analyzed.
 
-    Runs a 3-stage streaming pipeline so the full zip never resides in
-    memory at once:
-
-      async download → queue → sync stream_unzip (thread) → queue → async upload
-
-    Also updates the pipeline run status to RUNNING before extraction
-    and reports the file count after extraction, avoiding two extra
-    orchestrator replay cycles.
+    These are files whose detected language is not targeted (or not
+    supported): they are recorded in the repository catalog without any
+    further analysis.
 
     Args:
-        payload(str): JSON string with keys `blob_path` and `pipeline_run_id`.
+        payload(str): JSON string with keys `repo_id` and `blob_paths`
+            (list of blob storage paths).
 
     Returns:
-        list[str]: list of blob paths for the extracted files.
+        dict[str, int]: `{"file_success": int, "file_failed": int}`.
     """
     data = json.loads(payload)
-    blob_path: str = data["blob_path"]
-    pipeline_run_id = PydanticObjectId(data["pipeline_run_id"])
+    repo_id = PydanticObjectId(data["repo_id"])
+    blob_paths: list[str] = data["blob_paths"]
 
-    await update_pipeline_run(
-        pipeline_run_id=pipeline_run_id,
-        status=PipelineStatus.RUNNING,
-        meta=PipelineMeta(message="Extracting the ZIP...", step="extract"),
-    )
+    succeeded, failed = await persist_file_documents(repo_id, blob_paths)
 
-    uploaded_paths = await stream_extract_zip(blob_path)
-
-    await update_pipeline_run(
-        pipeline_run_id=pipeline_run_id,
-        meta=PipelineMeta(
-            message=f"{len(uploaded_paths)} file(s) extracted. Analyzing file(s)...",
-            step="analyze",
-        ),
-    )
-
-    return uploaded_paths
+    return {"file_success": succeeded, "file_failed": failed}
 
 
 @pipeline_activity_bp.activity_trigger(input_name="payload")
@@ -129,30 +196,6 @@ async def process_file_batch(payload: str) -> list[FileResult]:
             results.append(res)
 
     return results
-
-
-@pipeline_activity_bp.activity_trigger(input_name="payload")
-async def persist_file_docs(payload: str) -> dict[str, int]:
-    """Create file documents for files that are kept but not analyzed.
-
-    These are files whose detected language is not targeted (or not
-    supported): they are recorded in the repository catalog without any
-    further analysis.
-
-    Args:
-        payload(str): JSON string with keys `repo_id` and `blob_paths`
-            (list of blob storage paths).
-
-    Returns:
-        dict[str, int]: `{"file_success": int, "file_failed": int}`.
-    """
-    data = json.loads(payload)
-    repo_id = PydanticObjectId(data["repo_id"])
-    blob_paths: list[str] = data["blob_paths"]
-
-    succeeded, failed = await persist_file_documents(repo_id, blob_paths)
-
-    return {"file_success": succeeded, "file_failed": failed}
 
 
 @pipeline_activity_bp.activity_trigger(input_name="payload")
@@ -204,3 +247,29 @@ async def process_holistic_analysis(payload: str) -> None:
         pipeline_run_id=pipeline_run_id,
         status=PipelineStatus.COMPLETED,
     )
+
+
+@pipeline_activity_bp.activity_trigger(input_name="payload")
+async def stamp_analyzer_version(payload: str) -> None:
+    """Record which analyzer version produces this repository's artifacts.
+
+    Read here rather than in the orchestrator, whose body re-executes on every
+    replay and must stay deterministic.
+
+    Also marks the pipeline run as RUNNING: being the first activity, it is
+    where the run stops being PENDING, and the transition belongs here rather
+    than in each materialization arm, which only reports what it is doing.
+
+    Args:
+        payload(str): JSON string with keys `repo_id` and `pipeline_run_id`.
+    """
+    data = json.loads(payload)
+    repo_id = PydanticObjectId(data["repo_id"])
+    pipeline_run_id = PydanticObjectId(data["pipeline_run_id"])
+
+    await update_pipeline_run(
+        pipeline_run_id=pipeline_run_id,
+        status=PipelineStatus.RUNNING,
+    )
+
+    await stamp_ran_analyzer_version(repo_id, get_analyzer_version())

@@ -39,5 +39,8 @@ class Settings(BaseSettings):
     BLOB_STORAGE_ACCOUNT_URL: str
     BLOB_STORAGE_CONTAINER_NAME: str = "retro-doc-backend"
 
+    # Proxy
+    HTTP_PROXY_URL: str | None = None
+
 
 settings = Settings()
