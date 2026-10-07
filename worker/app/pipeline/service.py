@@ -320,6 +320,12 @@ async def compute_repo_representations(
 async def get_source_code_from_blob(blob_path: str) -> str:
     """Get the source code content from a blob storage path.
 
+    The content is decoded as UTF-8, dropping a leading byte order mark (which
+    Windows editors add and which the parsers reject as an invalid token). Content
+    that is not valid UTF-8 is decoded as Windows-1252, the usual encoding of legacy
+    code bases (a superset of ISO-8859-1 for printable characters), instead of
+    replacing every accented character.
+
     Args:
         blob_path(str): The blob storage path of the file.
 
@@ -329,7 +335,10 @@ async def get_source_code_from_blob(blob_path: str) -> str:
     container = get_container_client()
     stream = await container.download_blob(blob_path)
     raw = await stream.readall()
-    source_code = raw.decode(errors="replace")
+    try:
+        source_code = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        source_code = raw.decode("cp1252", errors="replace")
 
     return source_code
 
