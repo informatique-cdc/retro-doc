@@ -27,6 +27,7 @@ GIT_UPLOAD_PACK_TIMEOUT_S = 10
 
 _ADVERTISEMENT_MEDIA_TYPE = "application/x-git-upload-pack-advertisement"
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}")
+_FULL_COMMIT_LENGTHS = (40, 64)  # SHA-1 and SHA-256 object names
 _HEADS_PREFIX = "refs/heads/"
 _SYMREF_HEAD_PREFIX = b"symref=HEAD:"
 _UNSAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
@@ -46,6 +47,39 @@ class ResolvedGitRef(BaseModel):
     url: str
     commit: str
     ref: str | None = None
+
+
+def _expand_commit(commit: str, refs: dict[str, str]) -> str:
+    """Expand an abbreviated commit SHA to the full SHA of the tip it prefixes.
+
+    The worker fetches the commit by name (`git fetch origin <sha>`), and git
+    only fetches a full object name: anything shorter is looked up as a ref and
+    never found. An abbreviated SHA is therefore resolved here against the
+    advertised tips, the only commits the advertisement names.
+
+    Args:
+        commit(str): The lowercased commit SHA, full or abbreviated.
+        refs(dict[str, str]): The advertised refs, ref name to commit SHA.
+
+    Returns:
+        str: The full commit SHA.
+
+    Raises:
+        HTTPException: 422 if an abbreviated SHA does not identify exactly one
+            advertised tip.
+    """
+    if len(commit) in _FULL_COMMIT_LENGTHS:
+        return commit
+
+    matches = {sha.lower() for sha in refs.values() if sha.lower().startswith(commit)}
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Abbreviated commit does not match a branch or tag tip: "
+            "provide the full commit SHA.",
+        )
+
+    return matches.pop()
 
 
 async def _get_advertisement(
@@ -223,7 +257,8 @@ async def resolve_git_ref(
     Raises:
         HTTPException: 422 if the URL is malformed, the remote is inaccessible
             or does not answer with a git advertisement, the branch does not
-            exist, or the commit is malformed. 502 if the remote is unreachable.
+            exist, the commit is malformed, or an abbreviated commit matches no
+            single advertised tip. 502 if the remote is unreachable.
     """
     url = _normalize_repo_url(repo_url)
 
@@ -270,6 +305,7 @@ async def resolve_git_ref(
     # Explicit commit: accept it (accessibility confirmed) and reverse-map a
     # branch tip to a fetch hint when one matches
     if commit is not None:
+        commit = _expand_commit(commit, refs)
         ref = next(
             (
                 name[len(_HEADS_PREFIX) :]

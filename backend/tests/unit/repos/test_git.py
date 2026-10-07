@@ -140,6 +140,16 @@ class TestResolveGitRef:
             pytest.param(
                 None, _SHA_LOOSE, _SHA_LOOSE, None, id="commit-no-matching-tip"
             ),
+            pytest.param(
+                None, _SHA_DEV[:7], _SHA_DEV, "dev", id="abbreviated-commit-expanded"
+            ),
+            pytest.param(
+                None,
+                _SHA_MAIN[:12].upper(),
+                _SHA_MAIN,
+                "main",
+                id="abbreviated-commit-case-insensitive",
+            ),
         ],
     )
     async def test_resolve_ref(
@@ -184,6 +194,9 @@ class TestResolveGitRef:
         [
             pytest.param(_URL, "nope", None, id="unknown-branch"),
             pytest.param(_URL, None, "not-a-sha!", id="non-hexadecimal-commit"),
+            pytest.param(
+                _URL, None, _SHA_LOOSE[:7], id="abbreviated-commit-matching-no-tip"
+            ),
             pytest.param("git@github.com:octo/repo.git", None, None, id="scp-url"),
             pytest.param("ssh://git@host/x", None, None, id="ssh-url"),
         ],
