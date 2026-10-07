@@ -753,6 +753,10 @@ class JavaCFGBuilderService(CFGBuilderService):
         """
         if stmt is None:
             return ""
+        # javalang keeps a qualifier (`lignes` in `lignes.add(x)`, `System.out`
+        # in `System.out.println(x)`) as a plain string
+        if isinstance(stmt, str):
+            return stmt
         try:
             if isinstance(stmt, MemberReference):
                 result = ""
@@ -785,14 +789,10 @@ class JavaCFGBuilderService(CFGBuilderService):
                 return f"{left} {stmt.operator} {right}"
 
             if isinstance(stmt, Literal):
+                # javalang keeps the literal as written in the source, quotes
+                # included (`"x"`, `'c'`, `42`, `1.5f`, `true`, `null`)
                 val = stmt.value
-                if val is None or (isinstance(val, str) and val.lower() == "null"):
-                    return "null"
-                if isinstance(val, str) and val.lower() in ("true", "false", "null"):
-                    return val.lower()
-                if isinstance(val, str):
-                    return f'"{val}"'
-                return str(val)
+                return "null" if val is None else str(val)
 
             if isinstance(stmt, This):
                 result = "this"
