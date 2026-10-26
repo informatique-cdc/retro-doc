@@ -25,7 +25,7 @@ jobs:
       - name: Scan Secrets
         run: nix run ${{ env.NIXPKGS }}#betterleaks -- git --redact --no-banner --verbose
   release:
-    needs: qa
+    needs: static-analysis
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
